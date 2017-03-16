@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include "xbyak/xbyak.h"
+#include "xbyak/xbyak_bin2hex.h"
 #include <stdlib.h>
+#include <string.h>
+#include "cybozu/inttype.hpp"
 #define NUM_OF_ARRAY(x) (sizeof(x) / sizeof(x[0]))
 
 using namespace Xbyak;
@@ -25,7 +28,6 @@ const uint64 IMM_1 = 1ULL << 14;
 const uint64 MEM8 = 1ULL << 15;
 const uint64 MEM16 = 1ULL << 16;
 const uint64 MEM32 = 1ULL << 17;
-const uint64 NEG = 1ULL << 18;
 const uint64 ONE = 1ULL << 19;
 const uint64 CL = 1ULL << 20;
 const uint64 MEM_ONLY_DISP = 1ULL << 21;
@@ -34,7 +36,7 @@ const uint64 _YMM = 1ULL << 24;
 const uint64 VM32X_32 = 1ULL << 39;
 const uint64 VM32X_64 = 1ULL << 40;
 const uint64 VM32Y_32 = 1ULL << 41;
-const uint64 VM32Y_64 = 1ULL << 42; // max value
+const uint64 VM32Y_64 = 1ULL << 42;
 #ifdef XBYAK64
 const uint64 _MEMe = 1ULL << 25;
 const uint64 REG32_2 = 1ULL << 26; // r8d, ...
@@ -75,13 +77,51 @@ const uint64 IMM_2 = 1ULL << 38;
 const uint64 IMM = IMM_1 | IMM_2;
 const uint64 XMM = _XMM | _XMM2;
 const uint64 YMM = _YMM | _YMM2;
+const uint64 K = 1ULL << 43;
+const uint64 _ZMM = 1ULL << 44;
+const uint64 _ZMM2 = 1ULL << 45;
+#ifdef XBYAK64
+const uint64 ZMM = _ZMM | _ZMM2;
+const uint64 _YMM3 = 1ULL << 46;
+#else
+const uint64 ZMM = _ZMM;
+const uint64 _YMM3 = 0;
+#endif
+const uint64 K2 = 1ULL << 47;
+const uint64 ZMM_SAE = 1ULL << 48;
+const uint64 ZMM_ER = 1ULL << 49;
+#ifdef XBYAK64
+const uint64 _XMM3 = 1ULL << 50;
+#endif
+const uint64 XMM_SAE = 1ULL << 51;
+#ifdef XBYAK64
+const uint64 XMM_KZ = 1ULL << 52;
+const uint64 YMM_KZ = 1ULL << 53;
+const uint64 ZMM_KZ = 1ULL << 54;
+#else
+const uint64 XMM_KZ = 0;
+const uint64 YMM_KZ = 0;
+const uint64 ZMM_KZ = 0;
+#endif
+const uint64 MEM_K = 1ULL << 55;
+const uint64 M_1to2 = 1ULL << 56;
+const uint64 M_1to4 = 1ULL << 57;
+const uint64 M_1to8 = 1ULL << 58;
+const uint64 M_1to16 = 1ULL << 59;
+const uint64 XMM_ER = 1ULL << 60;
+const uint64 M_xword = 1ULL << 61;
+const uint64 M_yword = 1ULL << 62;
+const uint64 MY_1to4 = 1ULL << 18;
+
 const uint64 NOPARA = 1ULL << (bitEnd - 1);
 
 class Test {
+	Test(const Test&);
+	void operator=(const Test&);
 	const bool isXbyak_;
 	int funcNum_;
 	// check all op1, op2, op3
-	void put(const char *nm, uint64 op1 = NOPARA, uint64 op2 = NOPARA, uint64 op3 = NOPARA, uint64 op4 = NOPARA) const
+	void put(const std::string& nm, uint64 op1 = NOPARA, uint64 op2 = NOPARA, uint64 op3 = NOPARA, uint64 op4 = NOPARA) const
 	{
 		for (int i = 0; i < bitEnd; i++) {
 			if ((op1 & (1ULL << i)) == 0) continue;
@@ -91,7 +131,7 @@ class Test {
 					if ((op3 & (1ULL << k)) == 0) continue;
 					for (int s = 0; s < bitEnd; s++) {
 						if ((op4 & (1ULL << s)) == 0) continue;
-						printf("%s ", nm);
+						printf("%s ", nm.c_str());
 						if (isXbyak_) printf("(");
 						if (!(op1 & NOPARA)) printf("%s", get(1ULL << i));
 						if (!(op2 & NOPARA)) printf(", %s", get(1ULL << j));
@@ -160,6 +200,13 @@ class Test {
 				};
 				return tbl[idx];
 			}
+		case _ZMM:
+			{
+				static const char tbl[][6] = {
+					"zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6", "zmm7"
+				};
+				return tbl[idx];
+			}
 #ifdef XBYAK64
 		case _XMM2:
 			{
@@ -168,16 +215,49 @@ class Test {
 				};
 				return tbl[idx];
 			}
+		case _XMM3:
+			{
+				static const char tbl[][6] = {
+					"xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23"
+				};
+				return tbl[idx];
+			}
 		case _YMM2:
 			{
 				static const char tbl[][6] = {
-					"ymm0", "ymm1", "ymm2", "ymm3", "ymm4", "ymm5", "ymm6", "ymm7",
+					"ymm8", "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15",
+				};
+				return tbl[idx];
+			}
+		case _YMM3:
+			{
+				static const char tbl[][6] = {
+					"ymm16", "ymm17", "ymm18", "ymm19", "ymm20", "ymm21", "ymm22", "ymm23",
+				};
+				return tbl[idx];
+			}
+		case _ZMM2:
+			{
+				static const char tbl[][6] = {
+					"zmm8", "zmm9", "zmm10", "zmm11", "zmm28", "zmm29", "zmm30", "zmm31",
 				};
 				return tbl[idx];
 			}
 #endif
 		case _MEM:
-			return isXbyak_ ? "ptr[eax+ecx+3]" : "[eax+ecx+3]";
+			{
+				return isXbyak_ ? "ptr[eax+ecx+3]" : "[eax+ecx+3]"; // QQQ : disp8N
+/*
+				idx %= 5;
+				switch (idx) {
+				case 0: return isXbyak_ ? "ptr[eax+ecx]" : "[eax+ecx]";
+				case 1:	return isXbyak_ ? "ptr[eax+ecx+1]" : "[eax+ecx+1]";
+				case 2:	return isXbyak_ ? "ptr[eax+ecx+16]" : "[eax+ecx+16]";
+				case 3:	return isXbyak_ ? "ptr[eax+ecx+32]" : "[eax+ecx+32]";
+				case 4:	return isXbyak_ ? "ptr[eax+ecx+48]" : "[eax+ecx+48]";
+				}
+*/
+			}
 		case _MEMe:
 			{
 				static int ccc = 1;
@@ -187,7 +267,7 @@ class Test {
 				if (ccc & 1) {
 					return isXbyak_ ? "ptr[rdx+r15+0x12]" : "[rdx+r15+0x12]";
 				} else {
-					return isXbyak_ ? "ptr[rip - 0x13456]" : "[rip - 0x13456]";
+					return isXbyak_ ? "ptr[rip - 0x13456+1-3]" : "[rip - 0x13456+1-3]";
 				}
 			}
 		case MEM8:
@@ -297,8 +377,6 @@ class Test {
 			return "4";
 		case IMM_2:
 			return isXbyak_ ? "0xda" : "0xda";
-		case NEG:
-			return "-5";
 		case VM32X_32:
 			return isXbyak_ ? "ptr [ebp+4+xmm1*8]" : "[ebp+4+xmm1*8]";
 		case VM32X_64:
@@ -307,6 +385,52 @@ class Test {
 			return isXbyak_ ? "ptr [ymm4]" : "[ymm4]";
 		case VM32Y_64:
 			return isXbyak_ ? "ptr [12345+ymm13*2+r13]" : "[12345+ymm13*2+r13]";
+		case M_1to2: return isXbyak_ ? "ptr_b [eax+32]" : "[eax+32]{1to2}";
+		case M_1to4: return isXbyak_ ? "ptr_b [eax+32]" : "[eax+32]{1to4}";
+		case M_1to8: return isXbyak_ ? "ptr_b [eax+32]" : "[eax+32]{1to8}";
+		case M_1to16: return isXbyak_ ? "ptr_b [eax+32]" : "[eax+32]{1to16}";
+
+		case M_xword: return isXbyak_ ? "ptr [eax+33]" : "oword [eax+33]";
+		case M_yword: return isXbyak_ ? "yword [eax+33]" : "yword [eax+33]";
+		case MY_1to4: return isXbyak_ ? "yword_b [eax+32]" : "[eax+32]{1to4}";
+		case K:
+			{
+				static const char kTbl[][5] = {
+					"k1", "k2", "k3", "k4", "k5", "k6", "k7",
+				};
+				return kTbl[idx % 7];
+			}
+		case K2:
+			return isXbyak_ ? "k3 | k5" : "k3{k5}";
+#ifdef XBYAK64
+		case XMM_SAE:
+			return isXbyak_ ? "xmm25 | T_sae" : "xmm25, {sae}";
+		case ZMM_SAE:
+			return isXbyak_ ? "zmm25 | T_sae" : "zmm25, {sae}";
+		case XMM_ER:
+			return isXbyak_ ? "xmm4 | T_rd_sae" : "xmm4, {rd-sae}";
+		case ZMM_ER:
+			return isXbyak_ ? "zmm20 | T_rd_sae" : "zmm20, {rd-sae}";
+		case XMM_KZ:
+			return isXbyak_ ? "xmm5 | k5" : "xmm5{k5}";
+		case YMM_KZ:
+			return isXbyak_ ? "ymm2 |k3|T_z" : "ymm2{k3}{z}";
+		case ZMM_KZ:
+			return isXbyak_ ? "zmm7|k1" : "zmm7{k1}";
+		case MEM_K:
+			return isXbyak_ ? "ptr [rax] | k1" : "[rax]{k1}";
+#else
+		case XMM_SAE:
+			return isXbyak_ ? "xmm5 | T_sae" : "xmm5, {sae}";
+		case ZMM_SAE:
+			return isXbyak_ ? "zmm5 | T_sae" : "zmm5, {sae}";
+		case XMM_ER:
+			return isXbyak_ ? "xmm30 | T_rd_sae" : "xmm30, {rd-sae}";
+		case ZMM_ER:
+			return isXbyak_ ? "zmm2 | T_rd_sae" : "zmm2, {rd-sae}";
+		case MEM_K:
+			return isXbyak_ ? "ptr [eax] | k1" : "[eax]{k1}";
+#endif
 		}
 		return 0;
 	}
@@ -427,7 +551,7 @@ class Test {
 		}
 
 		put("bswap", REG32e);
-		put("lea", REG32e, MEM);
+		put("lea", REG32e|REG16, MEM);
 		put("fldcw", MEM);
 		put("fstcw", MEM);
 	}
@@ -457,6 +581,19 @@ class Test {
 #ifdef USE_YASM
 		put("jmp", "ptr[rip + 0x12345678]", "[rip+0x12345678]");
 		put("call", "ptr[rip + 0x12345678]", "[rip+0x12345678]");
+		put("call", "ptr[rip -23]", "[rip-23]");
+		put("call", "ptr[rip -23+56]", "[rip-23+56]");
+#else
+		// bug of yasm?
+		if (isXbyak_) {
+			puts("{ Label label0;");
+			puts("L(label0);");
+			puts("pshufb (xmm14, ptr [rip+label0]); dump();");
+			puts("}");
+		} else {
+			puts("label0:");
+			puts("pshufb xmm14, [rel label0]");
+		}
 #endif
 #endif
 	}
@@ -474,6 +611,7 @@ class Test {
 		put("prefetcht1", MEM);
 		put("prefetcht2", MEM);
 		put("prefetchnta", MEM);
+		put("prefetchwt1", MEM);
 
 		// SSE2 misc
 		put("maskmovdqu", XMM, XMM);
@@ -790,6 +928,7 @@ class Test {
 		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
 			char buf[16];
 			sprintf(buf, "cmov%s", tbl[i]);
+			put(buf, REG16, REG16|MEM);
 			put(buf, REG32, REG32|MEM);
 			put(buf, REG64, REG64|MEM);
 			sprintf(buf, "set%s", tbl[i]);
@@ -799,35 +938,37 @@ class Test {
 	void putReg1() const
 	{
 		// (REG, REG|MEM)
-		static const char tbl[][16] = {
-			"adc",
-			"add",
-			"and",
-			"cmp",
-			"or",
-			"sbb",
-			"sub",
-			"xor",
-		};
-		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-			const char *p = tbl[i];
-			put(p, REG32, REG32|MEM);
-			put(p, REG64, REG64|MEM);
-			put(p, REG16, REG16|MEM);
-			put(p, REG8|REG8_3, REG8|MEM);
-			put(p, MEM, REG32e|REG16|REG8|REG8_3);
+		{
+			static const char tbl[][16] = {
+				"adc",
+				"add",
+				"and",
+				"cmp",
+				"or",
+				"sbb",
+				"sub",
+				"xor",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				const char *p = tbl[i];
+				put(p, REG32, REG32|MEM);
+				put(p, REG64, REG64|MEM);
+				put(p, REG16, REG16|MEM);
+				put(p, REG8|REG8_3, REG8|MEM);
+				put(p, MEM, REG32e|REG16|REG8|REG8_3);
 
-			put(p, MEM8, IMM8|NEG8);
-			put(p, MEM16, IMM8|IMM16|NEG8|NEG16);
-			put(p, MEM32, IMM8|IMM32|NEG8|NEG32);
+				put(p, MEM8, IMM8|NEG8);
+				put(p, MEM16, IMM8|IMM16|NEG8|NEG16);
+				put(p, MEM32, IMM8|IMM32|NEG8|NEG32);
 
-			put(p, REG64|RAX, IMM8|NEG8);
-			put(p, REG64|RAX, "0x12345678", "0x12345678");
-			put(p, REG64|RAX, "192", "192");
-			put(p, REG64|RAX, "0x1234", "0x1234");
-			put(p, REG32|EAX, IMM8|IMM32|NEG8);
-			put(p, REG16|AX, IMM8|IMM16|NEG8|NEG16);
-			put(p, REG8|REG8_3|AL, IMM|NEG8);
+				put(p, REG64|RAX, IMM8|NEG8);
+				put(p, REG64|RAX, "0x12345678", "0x12345678");
+				put(p, REG64|RAX, "192", "192");
+				put(p, REG64|RAX, "0x1234", "0x1234");
+				put(p, REG32|EAX, IMM8|IMM32|NEG8);
+				put(p, REG16|AX, IMM8|IMM16|NEG8|NEG16);
+				put(p, REG8|REG8_3|AL, IMM|NEG8);
+			}
 		}
 		{
 			const char tbl[][8] = {
@@ -949,38 +1090,44 @@ class Test {
 	}
 	void putEtc() const
 	{
-		const char *p = "ret";
-		put(p);
-		put(p, IMM);
-		p = "mov";
-		put(p, EAX|REG32|MEM|MEM_ONLY_DISP, REG32|EAX);
-		put(p, REG64|MEM|MEM_ONLY_DISP, REG64|RAX);
-		put(p, AX|REG16|MEM|MEM_ONLY_DISP, REG16|AX);
-		put(p, AL|REG8|REG8_3|MEM|MEM_ONLY_DISP, REG8|REG8_3|AL);
-		put(p, REG32e|REG16|REG8|RAX|EAX|AX|AL, MEM|MEM_ONLY_DISP);
-		put(p, MEM32|MEM16|MEM8, IMM);
-		put(p, REG64, "0x1234567890abcdefLL", "0x1234567890abcdef");
+		{
+			const char *p = "ret";
+			put(p);
+			put(p, IMM);
+			p = "mov";
+			put(p, EAX|REG32|MEM|MEM_ONLY_DISP, REG32|EAX);
+			put(p, REG64|MEM|MEM_ONLY_DISP, REG64|RAX);
+			put(p, AX|REG16|MEM|MEM_ONLY_DISP, REG16|AX);
+			put(p, AL|REG8|REG8_3|MEM|MEM_ONLY_DISP, REG8|REG8_3|AL);
+			put(p, REG32e|REG16|REG8|RAX|EAX|AX|AL, MEM|MEM_ONLY_DISP);
+			put(p, MEM32|MEM16|MEM8, IMM);
+			put(p, REG64, "0x1234567890abcdefLL", "0x1234567890abcdef");
+			put("movbe", REG16|REG32e, MEM);
+			put("movbe", MEM, REG16|REG32e);
 #ifdef XBYAK64
-		put(p, RAX|EAX|AX|AL, "ptr [0x1234567890abcdefLL]", "[qword 0x1234567890abcdef]");
-		put(p, "ptr [0x1234567890abcdefLL]", "[qword 0x1234567890abcdef]", RAX|EAX|AX|AL);
-		put(p, "qword [rax], 0");
-		put(p, "qword [rax], 0x12");
-		put(p, "qword [rax], 0x1234");
-		put(p, "qword [rax], 0x12345678");
-//		put(p, "qword [rax], 0x123456789ab");
-		put(p, "qword [rax], 1000000");
-		put(p, "rdx, qword [rax]");
+			put(p, RAX|EAX|AX|AL, "ptr [0x1234567890abcdefLL]", "[qword 0x1234567890abcdef]");
+			put(p, "ptr [0x1234567890abcdefLL]", "[qword 0x1234567890abcdef]", RAX|EAX|AX|AL);
+			put(p, "qword [rax], 0");
+			put(p, "qword [rax], 0x12");
+			put(p, "qword [rax], 0x1234");
+			put(p, "qword [rax], 0x12345678");
+//			put(p, "qword [rax], 0x123456789ab");
+			put(p, "qword [rax], 1000000");
+			put(p, "rdx, qword [rax]");
 #endif
-
-		const char tbl[][8] = {
-			"movsx",
-			"movzx",
-		};
-		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-			const char *p = tbl[i];
-			put(p, REG64, REG16|REG8|MEM8|MEM16);
-			put(p, REG32, REG16|REG8|MEM8|MEM16);
-			put(p, REG16, REG8|MEM8);
+			put("mov", EAX, "ptr [eax + ecx * 0]", "[eax + ecx * 0]"); // ignore scale = 0
+		}
+		{
+			const char tbl[][8] = {
+				"movsx",
+				"movzx",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				const char *p = tbl[i];
+				put(p, REG64, REG16|REG8|MEM8|MEM16);
+				put(p, REG32, REG16|REG8|MEM8|MEM16);
+				put(p, REG16, REG8|MEM8);
+			}
 		}
 #ifdef XBYAK64
 		put("movsxd", REG64, REG32|MEM32);
@@ -1131,27 +1278,29 @@ class Test {
 	}
 	void putSSE4_2() const
 	{
-		const char tbl[][16] = {
-			"blendpd",
-			"blendps",
-			"dppd",
-			"dpps",
-			"mpsadbw",
-			"pblendw",
-			"roundps",
-			"roundpd",
-			"roundss",
-			"roundsd",
-			"pcmpestrm",
-			"pcmpestri",
-			"pcmpistrm",
-			"pcmpistri",
-			"pclmulqdq",
-			"aeskeygenassist",
-		};
-		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-			const char *p = tbl[i];
-			put(p, XMM, XMM|MEM, IMM);
+		{
+			const char tbl[][16] = {
+				"blendpd",
+				"blendps",
+				"dppd",
+				"dpps",
+				"mpsadbw",
+				"pblendw",
+				"roundps",
+				"roundpd",
+				"roundss",
+				"roundsd",
+				"pcmpestrm",
+				"pcmpestri",
+				"pcmpistrm",
+				"pcmpistri",
+				"pclmulqdq",
+				"aeskeygenassist",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				const char *p = tbl[i];
+				put(p, XMM, XMM|MEM, IMM);
+			}
 		}
 		{
 			const char tbl[][16] = {
@@ -1404,7 +1553,7 @@ class Test {
 			{ "vpmullw", true },
 			{ "vpmulld", true },
 
-			{ "vpmuludq", false },
+			{ "vpmuludq", true },
 			{ "vpmuldq", true },
 
 			{ "vpor", true },
@@ -1587,7 +1736,7 @@ class Test {
 			{ "vpmovzxwq", false },
 			{ "vpmovzxdq", false },
 
-			{ "vptest", false },
+			{ "vptest", true },
 			{ "vrcpps", true },
 			{ "vrcpss", false },
 
@@ -1669,6 +1818,11 @@ class Test {
 			put(p.name, XMM, XMM, IMM);
 			put(p.name, YMM, YMM, IMM);
 			put(p.name, YMM, IMM);
+			put(p.name, _ZMM, _ZMM, IMM8);
+#ifdef XBYAK64
+			put(p.name, _XMM3, _XMM3, IMM8);
+			put(p.name, _YMM3, _YMM3, IMM8);
+#endif
 			if (p.support_Y_Y_X) {
 				put(p.name, YMM, YMM, XMM);
 			}
@@ -1701,12 +1855,13 @@ class Test {
 				{ "231" },
 			};
 			for (size_t j = 0; j < NUM_OF_ARRAY(ord); j++) {
-				const char suf[][2][8] = {
+				const char sufTbl[][2][8] = {
 					{ "pd", "ps" },
 					{ "sd", "ss" },
 				};
 				for (size_t k = 0; k < 2; k++) {
-					std::string name = std::string(p.name) + ord[j].name + suf[p.supportYMM ? 0 : 1][k];
+					const std::string suf = sufTbl[p.supportYMM ? 0 : 1][k];
+					std::string name = std::string(p.name) + ord[j].name + suf;
 					const char *q = name.c_str();
 					put(q, XMM, XMM, XMM | MEM);
 					if (!p.supportYMM) continue;
@@ -1779,7 +1934,7 @@ class Test {
 			} tbl[] = {
 				{ "vblendvpd", true },
 				{ "vblendvps", true },
-				{ "vpblendvb", false },
+				{ "vpblendvb", true },
 			};
 			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
 				const Tbl& p = tbl[i];
@@ -1802,6 +1957,10 @@ class Test {
 
 			put("vcvtsi2sd", XMM, XMM, REG32e | MEM);
 			put("vcvtsi2sd", XMM, REG32e | MEM);
+#ifdef XBYAK64
+			put("vcvtsi2sd", XMM, XMM, MEM64);
+			put("vcvtsi2sd", XMM, MEM64);
+#endif
 
 			put("vcvtps2pd", XMM | YMM, XMM | MEM);
 			put("vcvtdq2pd", XMM | YMM, XMM | MEM);
@@ -1826,68 +1985,7 @@ class Test {
 	}
 	void putFMA2()
 	{
-#ifndef USE_YASM
-		put("vmaskmovps", XMM, XMM, MEM);
-		put("vmaskmovps", YMM, YMM, MEM);
-
-		put("vmaskmovpd", YMM, YMM, MEM);
-		put("vmaskmovpd", XMM, XMM, MEM);
-
-		put("vmaskmovps", MEM, XMM, XMM);
-		put("vmaskmovpd", MEM, XMM, XMM);
-
-		put("vbroadcastf128", YMM, MEM);
-		put("vbroadcasti128", YMM, MEM);
-		put("vbroadcastsd", YMM, XMM|MEM);
-		{
-			const char *tbl[] = {
-				"vbroadcastss",
-				"vpbroadcastb",
-				"vpbroadcastw",
-				"vpbroadcastd",
-				"vpbroadcastq",
-			};
-			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-				put(tbl[i], XMM | YMM, XMM|MEM);
-			}
-		}
-
-		put("vinsertf128", YMM, YMM, XMM | MEM, IMM8);
-		put("vinserti128", YMM, YMM, XMM | MEM, IMM8);
-		put("vperm2f128", YMM, YMM, YMM | MEM, IMM8);
-		put("vperm2i128", YMM, YMM, YMM | MEM, IMM8);
-
-		{
-			const char *tbl[] = {
-				"vpmaskmovd", "vpmaskmovq"
-			};
-			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-				const char *name = tbl[i];
-				put(name, XMM, XMM, MEM);
-				put(name, YMM, YMM, MEM);
-				put(name, MEM, XMM, XMM);
-				put(name, MEM, YMM, YMM);
-			}
-		}
-		{
-			const char *tbl[] = {
-				"vpermd", "vpermps",
-			};
-			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-				const char *name = tbl[i];
-				put(name, YMM, YMM, YMM | MEM);
-			}
-		}
-		{
-			const char *tbl[] = {
-				"vpermq", "vpermpd",
-			};
-			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
-				const char *name = tbl[i];
-				put(name, YMM, YMM | MEM, IMM8);
-			}
-		}
-#else
+#ifdef USE_YASM
 		put("vextractf128", XMM | MEM, YMM, IMM);
 		put("vextracti128", XMM | MEM, YMM, IMM);
 		put("vmaskmovps", MEM, YMM, YMM);
@@ -1905,8 +2003,16 @@ class Test {
 		put("vpcmpgtq", XMM, XMM | MEM);
 		put("vpcmpgtq", XMM, XMM, XMM | MEM);
 
-		put("vpextrw", REG32e | MEM, XMM, IMM); // nasm iw wrong?
 		put("vmovntps", MEM, XMM | YMM); // nasm error
+#else
+		put("vmaskmovps", XMM, XMM, MEM);
+		put("vmaskmovps", YMM, YMM, MEM);
+
+		put("vmaskmovpd", YMM, YMM, MEM);
+		put("vmaskmovpd", XMM, XMM, MEM);
+
+		put("vmaskmovps", MEM, XMM, XMM);
+		put("vmaskmovpd", MEM, XMM, XMM);
 #endif
 	}
 	void putCmp()
@@ -2119,10 +2225,70 @@ public:
 			} while (std::next_permutation(ord, ord + 3));
 		}
 	}
+	void putSeg()
+	{
+		{
+			const char *segTbl[] = {
+				"es",
+				"cs",
+				"ss",
+				"ds",
+				"fs",
+				"gs",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(segTbl); i++) {
+				const char *seg = segTbl[i];
+				const char *op1Tbl[] = {
+					"ax",
+					"edx",
+					(isXbyak_ ? "ptr [eax]" : "[eax]"),
+#ifdef XBYAK64
+					"r9",
+#endif
+				};
+				for (size_t j = 0; j < NUM_OF_ARRAY(op1Tbl); j++) {
+					const char *op1 = op1Tbl[j];
+					if (isXbyak_) {
+						printf("mov(%s, %s); dump();\n", op1, seg);
+						printf("mov(%s, %s); dump();\n", seg, op1);
+					} else {
+						printf("mov %s, %s\n", op1, seg);
+						printf("mov %s, %s\n", seg, op1);
+					}
+				}
+			}
+		}
+		{
+			const char *segTbl[] = {
+#ifdef XBYAK32
+				"es",
+				"ss",
+				"ds",
+#endif
+				"fs",
+				"gs",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(segTbl); i++) {
+				const char *seg = segTbl[i];
+				if (isXbyak_) {
+					printf("push(%s); dump();\n", seg);
+					printf("pop(%s); dump();\n", seg);
+				} else {
+					printf("push %s\n", seg);
+					printf("pop %s\n", seg);
+				}
+			}
+		}
+	}
 	void put()
 	{
+#ifdef USE_AVX512
+		putAVX512();
+#else
+
 #ifdef USE_AVX
 
+		separateFunc();
 		putFMA2();
 
 #ifdef USE_YASM
@@ -2134,15 +2300,23 @@ public:
 		putGatherAll();
 #else
 		putAVX1();
+		separateFunc();
 		putAVX2();
 		putAVX_X_X_XM_omit();
+		separateFunc();
 		putAVX_X_X_XM_IMM();
+		separateFunc();
 		putAVX_X_XM_IMM();
+		separateFunc();
 		putAVX_X_X_XM();
+		separateFunc();
 		putAVX_X_XM();
+		separateFunc();
 		putAVX_M_X();
 		putAVX_X_X_IMM_omit();
+		separateFunc();
 		putAVX_Y_XM();
+		separateFunc();
 		putFMA();
 #endif
 
@@ -2156,6 +2330,7 @@ public:
 		putSSE4_1();
 		separateFunc();
 		putSSE4_2();
+		putSeg(); // same behavior as yasm for mov rax, cx
 #else
 		putSIMPLE();
 		putReg1();
@@ -2207,7 +2382,888 @@ public:
 #endif // XBYAK64
 
 #endif // USE_AVX
+
+#endif // USE_AVX512
 	}
+#ifdef USE_AVX512
+	void putOpmask()
+	{
+		{
+			const char *tbl[] = {
+				"kadd",
+				"kand",
+				"kandn",
+				"kor",
+				"kxnor",
+				"kxor",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				std::string name = tbl[i];
+				put(name + "b", K, K, K);
+				put(name + "w", K, K, K);
+				put(name + "q", K, K, K);
+				put(name + "d", K, K, K);
+			}
+			put("kunpckbw", K, K, K);
+			put("kunpckwd", K, K, K);
+			put("kunpckdq", K, K, K);
+		}
+		{
+			const char *tbl[] = {
+				"knot",
+				"kortest",
+				"ktest",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				std::string name = tbl[i];
+				put(name + "b", K, K);
+				put(name + "w", K, K);
+				put(name + "q", K, K);
+				put(name + "d", K, K);
+			}
+		}
+		{
+			const char *tbl[] = {
+				"kshiftl",
+				"kshiftr",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				std::string name = tbl[i];
+				put(name + "b", K, K, IMM8);
+				put(name + "w", K, K, IMM8);
+				put(name + "q", K, K, IMM8);
+				put(name + "d", K, K, IMM8);
+			}
+		}
+		put("kmovw", K, K | MEM | REG32);
+		put("kmovq", K, K | MEM);
+		put("kmovb", K, K | MEM | REG32);
+		put("kmovd", K, K | MEM | REG32);
+
+		put("kmovw", MEM | REG32, K);
+		put("kmovq", MEM, K);
+		put("kmovb", MEM | REG32, K);
+		put("kmovd", MEM | REG32, K);
+#ifdef XBYAK64
+		put("kmovq", K, REG64);
+		put("kmovq", REG64, K);
+#endif
+	}
+	void put_vaddpd(const char *r1, const char *r2, const char *r3, int kIdx = 0, bool z = false, int sae = 0)
+	{
+		std::string modifier;
+		char pk[16] = "";
+		const char *pz = "";
+		const char *saeTblXbyak[] = { "", "|T_rn_sae", "|T_rd_sae", "|T_ru_sae", "|T_rz_sae" };
+		const char *saeTblNASM[] = { "", ",{rn-sae}", ",{rd-sae}", ",{ru-sae}", ",{rz-sae}" };
+		if (isXbyak_) {
+			if (kIdx) CYBOZU_SNPRINTF(pk, sizeof(pk), "|k%d", kIdx);
+			if (z) pz = "|T_z";
+			printf("vaddpd(%s%s%s, %s, %s%s); dump();\n", r1, pk, pz, r2, r3, saeTblXbyak[sae]);
+		} else {
+			if (kIdx) CYBOZU_SNPRINTF(pk, sizeof(pk), "{k%d}", kIdx);
+			if (z) pz = "{z}";
+			printf("vaddpd %s%s%s, %s, %s%s\n", r1, pk, pz, r2, r3, saeTblNASM[sae]);
+		}
+	}
+	void putCombi()
+	{
+		const char *xTbl[] = {
+			"xmm2",
+#ifdef XBYAK64
+			"xmm8", "xmm31"
+#else
+			"xmm5", "xmm6"
+#endif
+		};
+		const char *yTbl[] = {
+			"ymm0",
+#ifdef XBYAK64
+			"ymm15", "ymm31"
+#else
+			"ymm4", "ymm2"
+#endif
+		};
+		const char *zTbl[] = {
+			"zmm1",
+#ifdef XBYAK64
+			"zmm9", "zmm30"
+#else
+			"zmm3", "zmm7"
+#endif
+		};
+		const size_t N = NUM_OF_ARRAY(zTbl);
+		for (size_t i = 0; i < N; i++) {
+			for (size_t j = 0; j < N; j++) {
+				separateFunc();
+				for (size_t k = 0; k < N; k++) {
+#ifdef XBYAK64
+					for (int kIdx = 0; kIdx < 8; kIdx++) {
+						for (int z = 0; z < 2; z++) {
+							put_vaddpd(xTbl[i], xTbl[j], xTbl[k], kIdx, z == 1);
+							put_vaddpd(yTbl[i], yTbl[j], yTbl[k], kIdx, z == 1);
+							for (int sae = 0; sae < 5; sae++) {
+								put_vaddpd(zTbl[i], zTbl[j], zTbl[k], kIdx, z == 1, sae);
+							}
+						}
+					}
+#else
+					put_vaddpd(xTbl[i], xTbl[j], xTbl[k]);
+					put_vaddpd(yTbl[i], yTbl[j], yTbl[k]);
+					for (int sae = 0; sae < 5; sae++) {
+						put_vaddpd(zTbl[i], zTbl[j], zTbl[k], sae);
+					}
+#endif
+				}
+			}
+		}
+		put("vaddpd", XMM, XMM, _MEM);
+		put("vaddpd", YMM, YMM, _MEM);
+		put("vaddpd", ZMM, ZMM, _MEM);
+	}
+	void putCmpK()
+	{
+		{
+			const struct Tbl {
+				const char *name;
+				bool supportYMM;
+			} tbl[] = {
+				{ "vcmppd", true },
+				{ "vcmpps", true },
+				{ "vcmpsd", false },
+				{ "vcmpss", false },
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				const Tbl *p = &tbl[i];
+				put(p->name, K, _XMM, _XMM | MEM, IMM);
+				if (!p->supportYMM) continue;
+				put(p->name, K, _YMM, _YMM | MEM, IMM);
+				put(p->name, K, _ZMM, _ZMM | MEM, IMM);
+			}
+		}
+		put("vcmppd", K2, ZMM, ZMM_SAE, IMM);
+#ifdef XBYAK64
+		{
+			const struct Tbl {
+				const char *name;
+			} tbl[] = {
+				{ "vcomisd" },
+				{ "vcomiss" },
+				{ "vucomisd" },
+				{ "vucomiss" },
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				const Tbl *p = &tbl[i];
+				put(p->name, XMM | _XMM3, XMM_SAE | XMM | MEM);
+			}
+		}
+		put("vcomiss", _XMM3, XMM | MEM);
+		put("vcomiss", XMM, XMM_SAE);
+#endif
+	}
+	void putBroadcastSub(int idx, int disp)
+	{
+#ifdef XBYAK64
+		const char *a = "rax";
+#else
+		const char *a = "eax";
+#endif
+		if (isXbyak_) {
+			printf("vaddpd(zmm%d, zmm1, ptr_b[%s+%d]);dump();\n", idx, a, disp);
+			printf("vaddpd(ymm%d, ymm1, ptr_b[%s+%d]);dump();\n", idx, a, disp);
+			printf("vaddpd(xmm%d, xmm1, ptr_b[%s+%d]);dump();\n", idx, a, disp);
+		} else {
+			printf("vaddpd zmm%d, zmm1, [%s+%d]{1to8}\n", idx, a, disp);
+			printf("vaddpd ymm%d, ymm1, [%s+%d]{1to4}\n", idx, a, disp);
+			printf("vaddpd xmm%d, xmm1, [%s+%d]{1to2}\n", idx, a, disp);
+		}
+	}
+	void putBroadcast()
+	{
+		for (int i = 0; i < 9; i++) {
+			putBroadcastSub(0, i);
+#ifdef XBYAK64
+			putBroadcastSub(10, i);
+			putBroadcastSub(20, i);
+#endif
+		}
+		put("vpbroadcastb", XMM_KZ | ZMM_KZ, REG8);
+		put("vpbroadcastw", XMM_KZ | ZMM_KZ, REG16);
+		put("vpbroadcastd", XMM_KZ | ZMM_KZ, REG32);
+#ifdef XBYAK64
+		put("vpbroadcastq", XMM_KZ | ZMM_KZ, REG64);
+#endif
+		{
+			const char *tbl[] = {
+				"vpbroadcastb",
+				"vpbroadcastw",
+				"vpbroadcastd",
+				"vpbroadcastq",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				put(tbl[i], XMM_KZ | ZMM_KZ, _XMM | _MEM);
+			}
+		}
+		put("vbroadcasti32x2", XMM_KZ | YMM_KZ | ZMM_KZ, _XMM | _MEM);
+		put("vbroadcasti32x4", YMM_KZ | ZMM_KZ, _MEM);
+		put("vbroadcasti64x2", YMM_KZ | ZMM_KZ, _MEM);
+		put("vbroadcasti32x8", ZMM_KZ, _MEM);
+		put("vbroadcasti64x4", ZMM_KZ, _MEM);
+	}
+	void putAVX512_M_X()
+	{
+		const char *tbl[] = {
+			"vmovapd",
+			"vmovaps",
+			"vmovupd",
+			"vmovups",
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const char *name = tbl[i];
+			put(name, MEM, ZMM);
+			put(name, ZMM, MEM);
+		}
+	}
+	void put_vmov()
+	{
+#ifdef XBYAK64
+		put("vmovd", _XMM3, MEM|REG32);
+		put("vmovd", MEM|REG32, _XMM3);
+		put("vmovq", _XMM3, MEM|REG64|XMM);
+		put("vmovq", MEM|REG64|XMM, _XMM3);
+		put("vmovhlps", _XMM3, _XMM3, _XMM3);
+		put("vmovlhps", _XMM3, _XMM3, _XMM3);
+		put("vmovntdqa", _XMM3|_YMM3|ZMM, MEM);
+		put("vmovntdq", MEM, _XMM3 | _YMM3 | ZMM);
+		put("vmovntpd", MEM, _XMM3 | _YMM3 | ZMM);
+		put("vmovntps", MEM, _XMM3 | _YMM3 | ZMM);
+
+		put("vmovsd", XMM_KZ, _XMM3, _XMM3);
+		put("vmovsd", XMM_KZ, MEM);
+		put("vmovsd", MEM_K, XMM);
+		put("vmovss", XMM_KZ, _XMM3, _XMM3);
+		put("vmovss", XMM_KZ, MEM);
+		put("vmovss", MEM_K, XMM);
+
+		put("vmovshdup", _ZMM, _ZMM);
+		put("vmovsldup", _ZMM, _ZMM);
+
+
+		{
+			const char *tbl[] = {
+				"valignd",
+				"valignq",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				const char *name = tbl[i];
+				put(name, XMM_KZ, _XMM, _XMM | MEM, IMM);
+				put(name, _YMM3, _YMM3, _YMM3, IMM);
+				put(name, _ZMM, _ZMM, _ZMM, IMM);
+			}
+		}
+		{
+			const char tbl[][16] = {
+				"vmovhpd",
+				"vmovhps",
+				"vmovlpd",
+				"vmovlps",
+			};
+			for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+				put(tbl[i], _XMM3, _XMM3, MEM);
+				put(tbl[i], MEM, _XMM3);
+			}
+		}
+#endif
+	}
+	void put512_X_XM()
+	{
+		const struct Tbl {
+			const char *name;
+			bool M_X;
+		} tbl[] = {
+			{ "vmovddup", false },
+			{ "vmovdqa32", true },
+			{ "vmovdqa64", true },
+			{ "vmovdqu8", true },
+			{ "vmovdqu16", true },
+			{ "vmovdqu32", true },
+			{ "vmovdqu64", true },
+			{ "vpabsb", false },
+			{ "vpabsw", false },
+			{ "vpabsd", false },
+			{ "vpabsq", false },
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const Tbl& p = tbl[i];
+			put(p.name, _XMM|XMM_KZ, _XMM|MEM);
+			put(p.name, _YMM|YMM_KZ, _YMM|MEM);
+			put(p.name, _ZMM|ZMM_KZ, _ZMM|MEM);
+			if (!p.M_X) continue;
+			put(p.name, MEM, _XMM);
+			put(p.name, MEM, _YMM);
+			put(p.name, MEM, _ZMM);
+		}
+		put("vsqrtpd", XMM_KZ, M_1to2);
+		put("vsqrtpd", YMM_KZ, M_1to4);
+		put("vsqrtpd", ZMM_KZ, M_1to8);
+		put("vsqrtpd", ZMM_KZ, ZMM_ER);
+
+		put("vsqrtps", XMM_KZ, M_1to4);
+		put("vsqrtps", YMM_KZ, M_1to8);
+		put("vsqrtps", ZMM_KZ, M_1to16);
+		put("vsqrtps", ZMM_KZ, ZMM_ER);
+
+		put("vpabsd", ZMM_KZ, M_1to16);
+		put("vpabsq", ZMM_KZ, M_1to8);
+
+		put("vbroadcastf32x2", YMM_KZ | ZMM_KZ, _XMM | _MEM);
+		put("vbroadcastf32x4", YMM_KZ | ZMM_KZ, _MEM);
+
+		put("vbroadcastf64x2", YMM_KZ | ZMM_KZ, _MEM);
+		put("vbroadcastf64x4", ZMM_KZ, _MEM);
+	}
+	void put512_X_X_XM()
+	{
+		const struct Tbl {
+			const char *name;
+			uint64_t mem;
+		} tbl[] = {
+			{ "vsqrtsd", MEM },
+			{ "vsqrtss", MEM },
+			{ "vunpckhpd", M_1to2 },
+			{ "vunpckhps", M_1to4 },
+			{ "vunpcklpd", M_1to2 },
+			{ "vunpcklps", M_1to4 },
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const Tbl& p = tbl[i];
+			put(p.name, XMM_KZ, _XMM, _XMM|p.mem);
+		}
+	}
+	void put512_X3()
+	{
+#ifdef XBYAK64
+		const struct Tbl {
+			const char *name;
+			uint64_t x1;
+			uint64_t x2;
+			uint64_t xm;
+		} tbl[] = {
+			{ "vpacksswb", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpacksswb", YMM_KZ, _YMM, _YMM | _MEM },
+			{ "vpacksswb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpackssdw", XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpackssdw", YMM_KZ, _YMM, _YMM | M_1to8 },
+			{ "vpackssdw", ZMM_KZ, _ZMM, _ZMM | M_1to16 },
+
+			{ "vpackusdw", XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpackusdw", YMM_KZ, _YMM, _YMM | M_1to8 },
+			{ "vpackusdw", ZMM_KZ, _ZMM, _ZMM | M_1to16 },
+
+			{ "vpackuswb", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpackuswb", YMM_KZ, _YMM, _YMM | _MEM },
+			{ "vpackuswb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpaddb", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpaddw", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpaddd", XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpaddq", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpaddsb", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpaddsb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpaddsw", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpaddsw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpaddusb", XMM_KZ, _XMM, _XMM | MEM },
+			{ "vpaddusb", ZMM_KZ, _ZMM, _ZMM | MEM },
+
+			{ "vpaddusw", XMM_KZ, _XMM, _XMM | MEM },
+			{ "vpaddusw", ZMM_KZ, _ZMM, _ZMM | MEM },
+
+			{ "vpsubb", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpsubw", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpsubd", XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpsubq", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpsubsb", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpsubsb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpsubsw", XMM_KZ, _XMM, _XMM | _MEM },
+			{ "vpsubsw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpsubusb", XMM_KZ, _XMM, _XMM | MEM },
+			{ "vpsubusb", ZMM_KZ, _ZMM, _ZMM | MEM },
+
+			{ "vpsubusw", XMM_KZ, _XMM, _XMM | MEM },
+			{ "vpsubusw", ZMM_KZ, _ZMM, _ZMM | MEM },
+
+			{ "vpandd", ZMM_KZ, _ZMM, _ZMM | M_1to16 },
+			{ "vpandq", ZMM_KZ, _ZMM, _ZMM | M_1to8 },
+
+			{ "vpandnd", ZMM_KZ, _ZMM, _ZMM | M_1to16 },
+			{ "vpandnq", ZMM_KZ, _ZMM, _ZMM | M_1to8 },
+
+			{ "vpavgb", ZMM_KZ, _ZMM, _ZMM },
+			{ "vpavgw", ZMM_KZ, _ZMM, _ZMM },
+
+			{ "vpcmpeqb", K2, _ZMM, _ZMM | _MEM },
+			{ "vpcmpeqw", K2, _ZMM, _ZMM | _MEM },
+			{ "vpcmpeqd", K2, _ZMM, _ZMM | M_1to16 },
+			{ "vpcmpeqq", K2, _ZMM, _ZMM | M_1to8 },
+
+			{ "vpcmpgtb", K2, _ZMM, _ZMM | _MEM },
+			{ "vpcmpgtw", K2, _ZMM, _ZMM | _MEM },
+			{ "vpcmpgtd", K2, _ZMM, _ZMM | M_1to16 },
+			{ "vpcmpgtq", K2, _ZMM, _ZMM | M_1to8 },
+
+			{ "vpmaddubsw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpmaddwd", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpmaxsb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpmaxsw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpmaxsd", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to16 },
+			{ "vpmaxsq", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to8 },
+
+			{ "vpmaxub", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpmaxuw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpmaxud", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to16 },
+			{ "vpmaxuq", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to8 },
+
+			{ "vpminsb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpminsw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpminsd", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to16 },
+			{ "vpminsq", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to8 },
+
+			{ "vpminub", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpminuw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+			{ "vpminud", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to16 },
+			{ "vpminuq", ZMM_KZ, _ZMM, _ZMM | _MEM | M_1to8 },
+
+			{ "vpslldq", _XMM3, _XMM3 | _MEM, IMM8 },
+			{ "vpslldq", _YMM3, _YMM3 | _MEM, IMM8 },
+			{ "vpslldq", _ZMM, _ZMM | _MEM, IMM8 },
+
+			{ "vpsrldq", _XMM3, _XMM3 | _MEM, IMM8 },
+			{ "vpsrldq", _YMM3, _YMM3 | _MEM, IMM8 },
+			{ "vpsrldq", _ZMM, _ZMM | _MEM, IMM8 },
+
+			{ "vpsraw", XMM_KZ, _XMM, IMM8 },
+			{ "vpsraw", ZMM_KZ, _ZMM, IMM8 },
+
+			{ "vpsrad", XMM_KZ, _XMM | M_1to4, IMM8 },
+			{ "vpsrad", ZMM_KZ, _ZMM | M_1to16, IMM8 },
+
+			{ "vpsraq", XMM, XMM, IMM8 },
+			{ "vpsraq", XMM_KZ, _XMM | M_1to2, IMM8 },
+			{ "vpsraq", ZMM_KZ, _ZMM | M_1to8, IMM8 },
+
+			{ "vpsllw", _XMM3, _XMM3 | _MEM, IMM8 },
+			{ "vpslld", _XMM3, _XMM3 | _MEM | M_1to4, IMM8 },
+			{ "vpsllq", _XMM3, _XMM3 | _MEM | M_1to2, IMM8 },
+
+			{ "vpsrlw", XMM_KZ, _XMM, IMM8 },
+			{ "vpsrlw", ZMM_KZ, _ZMM, IMM8 },
+
+			{ "vpsrld", XMM_KZ, _XMM | M_1to4, IMM8 },
+			{ "vpsrld", ZMM_KZ, _ZMM | M_1to16, IMM8 },
+
+			{ "vpsrlq", _XMM3, _XMM3 | _MEM | M_1to2, IMM8 },
+			{ "vpsrlq", _ZMM, _ZMM | _MEM | M_1to8, IMM8 },
+
+			{ "vpsravw", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsravw", _ZMM, _ZMM, _MEM },
+
+			{ "vpsravd", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsravd", _ZMM, _ZMM, M_1to16 },
+
+			{ "vpsravq", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsravq", _ZMM, _ZMM, M_1to8 },
+
+			{ "vpsllvw", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsllvw", _ZMM, _ZMM, _MEM },
+
+			{ "vpsllvd", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsllvd", _ZMM, _ZMM, M_1to16 },
+
+			{ "vpsllvq", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsllvq", _ZMM, _ZMM, M_1to8 },
+
+			{ "vpsrlvw", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsrlvw", _ZMM, _ZMM, _MEM },
+
+			{ "vpsrlvd", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsrlvd", _ZMM, _ZMM, M_1to16 },
+
+			{ "vpsrlvq", XMM_KZ | _XMM, _XMM, _XMM },
+			{ "vpsrlvq", _ZMM, _ZMM, M_1to8 },
+
+			{ "vpshufb", _XMM | XMM_KZ, _XMM, _XMM },
+			{ "vpshufb", ZMM_KZ, _ZMM, _MEM },
+
+			{ "vpshufhw", _XMM | XMM_KZ, _XMM, IMM8 },
+			{ "vpshufhw", ZMM_KZ, _MEM, IMM8 },
+
+			{ "vpshuflw", _XMM | XMM_KZ, _XMM, IMM8 },
+			{ "vpshuflw", ZMM_KZ, _MEM, IMM8 },
+
+			{ "vpshufd", _XMM | XMM_KZ, _XMM | M_1to4, IMM8 },
+			{ "vpshufd", _ZMM | ZMM_KZ, _ZMM | M_1to16, IMM8 },
+
+			{ "vpord", _XMM | XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpord", _ZMM | ZMM_KZ, _ZMM, M_1to16 },
+
+			{ "vporq", _XMM | XMM_KZ, _XMM, _XMM | M_1to2 },
+			{ "vporq", _ZMM | ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpxord", _XMM | XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpxord", _ZMM | ZMM_KZ, _ZMM, M_1to16 },
+
+			{ "vpxorq", _XMM | XMM_KZ, _XMM, _XMM | M_1to2 },
+			{ "vpxorq", _ZMM | ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpsadbw", _XMM3, _XMM, _XMM },
+			{ "vpsadbw", _ZMM, _ZMM, _MEM },
+
+			{ "vpmuldq", _XMM3, _XMM, _XMM | M_1to2 },
+			{ "vpmuldq", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpmulhrsw", _XMM3, _XMM, _XMM },
+			{ "vpmulhrsw", ZMM_KZ, _ZMM, _MEM },
+
+			{ "vpmulhuw", _XMM3, _XMM, _XMM },
+			{ "vpmulhuw", ZMM_KZ, _ZMM, _MEM },
+
+			{ "vpmulhw", _XMM3, _XMM, _XMM },
+			{ "vpmulhw", ZMM_KZ, _ZMM, _MEM },
+
+			{ "vpmullw", _XMM3, _XMM, _XMM },
+			{ "vpmullw", ZMM_KZ, _ZMM, _MEM },
+
+			{ "vpmulld", _XMM3, _XMM, M_1to4 },
+			{ "vpmulld", ZMM_KZ, _ZMM, M_1to16 },
+
+			{ "vpmullq", _XMM3, _XMM, M_1to2 },
+			{ "vpmullq", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpmuludq", _XMM3, _XMM, M_1to2 },
+			{ "vpmuludq", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpunpckhbw", _XMM3, _XMM, _XMM },
+			{ "vpunpckhbw", _ZMM, _ZMM, _MEM },
+
+			{ "vpunpckhwd", _XMM3, _XMM, _XMM },
+			{ "vpunpckhwd", _ZMM, _ZMM, _MEM },
+
+			{ "vpunpckhdq", _XMM3, _XMM, M_1to4 },
+			{ "vpunpckhdq", _ZMM, _ZMM, M_1to16 },
+
+			{ "vpunpckhqdq", _XMM3, _XMM, M_1to2 },
+			{ "vpunpckhqdq", _ZMM, _ZMM, M_1to8 },
+
+			{ "vpunpcklbw", _XMM3, _XMM, _XMM },
+			{ "vpunpcklbw", _ZMM, _ZMM, _MEM },
+
+			{ "vpunpcklwd", _XMM3, _XMM, _XMM },
+			{ "vpunpcklwd", _ZMM, _ZMM, _MEM },
+
+			{ "vpunpckldq", _XMM3, _XMM, M_1to4 },
+			{ "vpunpckldq", _ZMM, _ZMM, M_1to16 },
+
+			{ "vpunpcklqdq", _XMM3, _XMM, M_1to2 },
+			{ "vpunpcklqdq", _ZMM, _ZMM, M_1to8 },
+
+			{ "vextractf32x4", _XMM | XMM_KZ | _MEM, _YMM | _ZMM, IMM8 },
+			{ "vextractf64x2", _XMM | XMM_KZ | _MEM, _YMM | _ZMM, IMM8 },
+			{ "vextractf32x8", _YMM | YMM_KZ | _MEM, _ZMM, IMM8 },
+			{ "vextractf64x4", _YMM | YMM_KZ | _MEM, _ZMM, IMM8 },
+
+			{ "vextracti32x4", _XMM | XMM_KZ | _MEM, _YMM | _ZMM, IMM8 },
+			{ "vextracti64x2", _XMM | XMM_KZ | _MEM, _YMM | _ZMM, IMM8 },
+			{ "vextracti32x8", _YMM | YMM_KZ | _MEM, _ZMM, IMM8 },
+			{ "vextracti64x4", _YMM | YMM_KZ | _MEM, _ZMM, IMM8 },
+
+			{ "vextractps", REG32 | _MEM, _XMM3, IMM8 },
+
+			{ "vpermb", XMM_KZ, _XMM, _XMM },
+			{ "vpermb", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpermw", XMM_KZ, _XMM, _XMM },
+			{ "vpermw", ZMM_KZ, _ZMM, _ZMM | _MEM },
+
+			{ "vpermd", YMM_KZ, _YMM, _YMM | M_1to8 },
+			{ "vpermd", ZMM_KZ, _ZMM, _ZMM | M_1to16 },
+
+			{ "vpermilpd", XMM_KZ, _XMM, _XMM | M_1to2 },
+			{ "vpermilpd", ZMM_KZ, _ZMM, M_1to8 },
+			{ "vpermilpd", XMM_KZ, M_1to2, IMM8 },
+			{ "vpermilpd", ZMM_KZ, M_1to8, IMM8 },
+
+			{ "vpermilps", XMM_KZ, _XMM, _XMM | M_1to4 },
+			{ "vpermilps", ZMM_KZ, _ZMM, M_1to16 },
+			{ "vpermilps", XMM_KZ, M_1to4, IMM8 },
+			{ "vpermilps", ZMM_KZ, M_1to16, IMM8 },
+
+			{ "vpermpd", YMM_KZ, _YMM | M_1to4, IMM8 },
+			{ "vpermpd", ZMM_KZ, _ZMM | M_1to8, IMM8 },
+			{ "vpermpd", YMM_KZ, _YMM, M_1to4 },
+			{ "vpermpd", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vpermps", YMM_KZ, _YMM, M_1to8 },
+			{ "vpermps", ZMM_KZ, _ZMM, M_1to16 },
+
+			{ "vpermq", YMM_KZ, _YMM | M_1to4, IMM8 },
+			{ "vpermq", ZMM_KZ, _ZMM | M_1to8, IMM8 },
+			{ "vpermq", YMM_KZ, _YMM, M_1to4 },
+			{ "vpermq", ZMM_KZ, _ZMM, M_1to8 },
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const Tbl& p = tbl[i];
+			put(p.name, p.x1, p.x2, p.xm);
+		}
+#endif
+	}
+	void put512_X3_I()
+	{
+		const struct Tbl {
+			const char *name;
+			uint64_t x1;
+			uint64_t x2;
+			uint64_t xm;
+		} tbl[] = {
+#ifdef XBYAK64
+			{ "vinsertps", _XMM, _XMM, _XMM3 },
+
+			{ "vshufpd", XMM_KZ, _XMM, M_1to2 },
+			{ "vshufpd", ZMM_KZ, _ZMM, M_1to8 },
+
+			{ "vshufps", XMM_KZ, _XMM, M_1to4 },
+			{ "vshufps", ZMM_KZ, _ZMM, M_1to16 },
+
+			{ "vinsertf32x4", _YMM | YMM_KZ, _YMM, _XMM | _MEM },
+			{ "vinsertf32x4", _ZMM | ZMM_KZ, _ZMM, _XMM | _MEM },
+
+			{ "vinsertf64x2", _YMM | YMM_KZ, _YMM, _XMM | _MEM },
+			{ "vinsertf64x2", _ZMM | ZMM_KZ, _ZMM, _XMM | _MEM },
+
+			{ "vinsertf32x8", _ZMM | ZMM_KZ, _ZMM, _YMM | _MEM },
+			{ "vinsertf64x4", _ZMM | ZMM_KZ, _ZMM, _YMM | _MEM },
+
+			{ "vinserti32x4", _YMM | YMM_KZ, _YMM, _XMM | _MEM },
+			{ "vinserti32x4", _ZMM | ZMM_KZ, _ZMM, _XMM | _MEM },
+
+			{ "vinserti64x2", _YMM | YMM_KZ, _YMM, _XMM | _MEM },
+			{ "vinserti64x2", _ZMM | ZMM_KZ, _ZMM, _XMM | _MEM },
+
+			{ "vinserti32x8", _ZMM | ZMM_KZ, _ZMM, _YMM | _MEM },
+			{ "vinserti64x4", _ZMM | ZMM_KZ, _ZMM, _YMM | _MEM },
+#endif
+			{ "vpalignr", ZMM_KZ, _ZMM, _ZMM },
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const Tbl& p = tbl[i];
+			put(p.name, p.x1, p.x2, p.xm, IMM8);
+		}
+#ifdef XBYAK64
+		put("vpextrb", _REG64, _XMM3, IMM8);
+		put("vpextrw", _REG64|MEM, _XMM3, IMM8);
+		put("vpextrd", _REG32, _XMM3, IMM8);
+		put("vpextrq", _REG64, _XMM3, IMM8);
+		put("vpinsrb", _XMM3, _XMM3, _REG32, IMM8);
+		put("vpinsrw", _XMM3, _XMM3, _REG32, IMM8);
+		put("vpinsrd", _XMM3, _XMM3, _REG32, IMM8);
+		put("vpinsrq", _XMM3, _XMM3, _REG64, IMM8);
+#endif
+	}
+	void put512_FMA()
+	{
+		const struct Tbl {
+			const char *name;
+			bool supportYMM;
+		} tbl[] = {
+			{ "vfmadd", true },
+			{ "vfmadd", false },
+			{ "vfmaddsub", true },
+			{ "vfmsubadd", true },
+			{ "vfmsub", true },
+			{ "vfmsub", false },
+			{ "vfnmadd", true },
+			{ "vfnmadd", false },
+			{ "vfnmsub", true },
+			{ "vfnmsub", false },
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const Tbl& p = tbl[i];
+			const struct Ord {
+				const char *name;
+			} ord[] = {
+				{ "132" },
+				{ "213" },
+				{ "231" },
+			};
+			for (size_t j = 0; j < NUM_OF_ARRAY(ord); j++) {
+				const char sufTbl[][2][8] = {
+					{ "pd", "ps" },
+					{ "sd", "ss" },
+				};
+				for (size_t k = 0; k < 2; k++) {
+					const std::string suf = sufTbl[p.supportYMM ? 0 : 1][k];
+					uint64_t mem = 0;
+					if (suf == "pd") {
+						mem = M_1to2;
+					} else if (suf == "ps") {
+						mem = M_1to4;
+					} else {
+						mem = XMM_ER;
+					}
+					std::string name = std::string(p.name) + ord[j].name + suf;
+					const char *q = name.c_str();
+					put(q, XMM_KZ, _XMM, mem);
+					if (!p.supportYMM) continue;
+					if (suf == "pd") {
+						mem = M_1to8;
+					} else if (suf == "ps") {
+						mem = M_1to16;
+					} else {
+						mem = XMM_ER;
+					}
+					put(q, _ZMM, _ZMM, mem);
+				}
+			}
+		}
+	}
+	void put512_Y_XM()
+	{
+		const char *tbl[] = {
+			"vpmovsxbw",
+			"vpmovsxbd",
+			"vpmovsxbq",
+			"vpmovsxwd",
+			"vpmovsxwq",
+			"vpmovsxdq",
+			"vpmovzxbw",
+			"vpmovzxbd",
+			"vpmovzxbq",
+			"vpmovzxwd",
+			"vpmovzxwq",
+			"vpmovzxdq",
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const char *name = tbl[i];
+			put(name, XMM_KZ, _XMM);
+			put(name, _ZMM, _MEM);
+		}
+	}
+	void put512_AVX1()
+	{
+#ifdef XBYAK64
+		const struct Tbl {
+			std::string name;
+			bool only_pd_ps;
+		} tbl[] = {
+			{ "vadd", false },
+			{ "vsub", false },
+			{ "vmul", false },
+			{ "vdiv", false },
+			{ "vmax", false },
+			{ "vmin", false },
+			{ "vand", true },
+			{ "vandn", true },
+			{ "vor", true },
+			{ "vxor", true },
+		};
+		for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
+			const struct Suf {
+				const char *suf;
+				bool supportYMM;
+			} sufTbl[] = {
+				{ "pd", true },
+				{ "ps", true },
+				{ "sd", false },
+				{ "ss", false },
+			};
+			for (size_t j = 0; j < NUM_OF_ARRAY(sufTbl); j++) {
+				if (tbl[i].only_pd_ps && j == 2) break;
+				std::string suf = sufTbl[j].suf;
+				std::string name = tbl[i].name + suf;
+				const char *p = name.c_str();
+				uint64_t mem = 0;
+				if (suf == "pd") {
+					mem = M_1to2;
+				} else if (suf == "ps") {
+					mem = M_1to4;
+				}
+				put(p, _XMM3 | XMM_KZ, _XMM, mem);
+				if (!sufTbl[j].supportYMM) continue;
+				mem = 0;
+				if (suf == "pd") {
+					mem = M_1to8;
+				} else if (suf == "ps") {
+					mem = M_1to16;
+				}
+				put(p, _ZMM, _ZMM, mem);
+			}
+		}
+#endif
+	}
+	void put512_cvt()
+	{
+#ifdef XBYAK64
+		put("vcvtdq2pd", XMM_KZ, _XMM | M_1to2);
+		put("vcvtdq2pd", YMM_KZ, _XMM | M_1to4);
+		put("vcvtdq2pd", ZMM_KZ, _YMM | M_1to8);
+
+		put("vcvtdq2ps", XMM_KZ, _XMM | M_1to4);
+		put("vcvtdq2ps", YMM_KZ, _YMM | M_1to8);
+		put("vcvtdq2ps", ZMM_KZ, _ZMM | M_1to16);
+
+		put("vcvtpd2dq", XMM_KZ, _XMM | _YMM | M_1to2);
+		put("vcvtpd2dq", YMM_KZ, _ZMM | ZMM_ER | M_1to8);
+#endif
+	}
+	void putMin()
+	{
+#ifdef XBYAK64
+		put("vcvtpd2dq", _XMM | _XMM3, _XMM | M_xword | M_1to2);
+		put("vcvtpd2dq", _XMM | _XMM3, _YMM | M_yword | MY_1to4);
+#endif
+	}
+	void putAVX512()
+	{
+#ifdef MIN_TEST
+		putMin();
+#else
+		putOpmask();
+		separateFunc();
+		putCombi();
+		separateFunc();
+		putCmpK();
+		separateFunc();
+		putBroadcast();
+		separateFunc();
+		putAVX512_M_X();
+		separateFunc();
+		put_vmov();
+		separateFunc();
+		put512_X_XM();
+		separateFunc();
+		put512_X_X_XM();
+		separateFunc();
+		put512_X3();
+		separateFunc();
+		put512_X3_I();
+		separateFunc();
+		put512_FMA();
+		separateFunc();
+		put512_Y_XM();
+		separateFunc();
+		put512_AVX1();
+		separateFunc();
+		put512_cvt();
+#endif
+	}
+#endif
 };
 
 int main(int argc, char *[])

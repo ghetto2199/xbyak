@@ -1,5 +1,5 @@
 
-    C++用x86(IA-32), x64(AMD64, x86-64) JITアセンブラ Xbyak 4.71
+    C++用x86(IA-32), x64(AMD64, x86-64) JITアセンブラ Xbyak 5.41
 
 -----------------------------------------------------------------------------
 ◎概要
@@ -101,7 +101,12 @@ ret           --> ret();
 (ptr|dword|word|byte) [base + index * (1|2|4|8) + displacement]
                       [rip + 32bit disp] ; x64 only
 という形で指定します。サイズを指定する必要がない限りptrを使えばよいです。
-セレクタはサポートしていません。
+
+セレクター(セグメントレジスタ)をサポートしました。
+(注意)セグメントレジスタはOperandを継承していません。
+
+mov eax, [fs:eax]  --> putSeg(fs); mov(eax, ptr [eax]);
+mov ax, cs         --> mov(ax, cs);
 
 mov eax, [ebx+ecx] --> mov (eax, ptr[ebx+ecx]);
 test byte [esp], 4 --> test (byte [esp], 4);
@@ -111,14 +116,54 @@ test byte [esp], 4 --> test (byte [esp], 4);
 
 ・AVX
 
-大抵の3オペランド形式の命令はデスティネーションを省略した形で呼び出すことができます。
 FMAについては簡略表記を導入するか検討中です(アイデア募集中)。
 
 vaddps(xmm1, xmm2, xmm3); // xmm1 <- xmm2 + xmm3
-vaddps(xmm2, xmm3); // xmm2 <- xmm2 + xmm3
 vaddps(xmm2, xmm3, ptr [rax]); // メモリアクセスはptrで
 
 vfmadd231pd(xmm1, xmm2, xmm3); // xmm1 <- (xmm2 * xmm3) + xmm1
+
+*注意*
+デスティネーションの省略形はサポートされなくなりました。
+
+vaddps(xmm2, xmm3); // xmm2 <- xmm2 + xmm3
+
+XBYAK_ENABLE_OMITTED_OPERANDを定義すると使えますが、将来はそれも非サポートになるでしょう。
+
+・AVX-512
+
+vaddpd zmm2, zmm5, zmm30                --> vaddpd(zmm2, zmm5, zmm30);
+vaddpd xmm30, xmm20, [rax]              --> vaddpd(xmm30, xmm20, ptr [rax]);
+vaddps xmm30, xmm20, [rax]              --> vaddps(xmm30, xmm20, ptr [rax]);
+vaddpd zmm2{k5}, zmm4, zmm2             --> vaddpd(zmm2 | k5, zmm4, zmm2);
+vaddpd zmm2{k5}{z}, zmm4, zmm2          --> vaddpd(zmm2 | k5 | T_z, zmm4, zmm2);
+vaddpd zmm2{k5}{z}, zmm4, zmm2,{rd-sae} --> vaddpd(zmm2 | k5 | T_z, zmm4, zmm2 | T_rd_sae);
+                                            vaddpd(zmm2 | k5 | T_z | T_rd_sae, zmm4, zmm2); // the position of `|` is arbitrary.
+vcmppd k4{k3}, zmm1, zmm2, {sae}, 5     --> vcmppd(k4 | k3, zmm1, zmm2 | T_sae, 5);
+
+vaddpd xmm1, xmm2, [rax+256]{1to2}      --> vaddpd(xmm1, xmm2, ptr_b [rax+256]);
+vaddpd ymm1, ymm2, [rax+256]{1to4}      --> vaddpd(ymm1, ymm2, ptr_b [rax+256]);
+vaddpd zmm1, zmm2, [rax+256]{1to8}      --> vaddpd(zmm1, zmm2, ptr_b [rax+256]);
+vaddps zmm1, zmm2, [rax+rcx*8+8]{1to16} --> vaddps(zmm1, zmm2, ptr_b [rax+rcx*8+8]);
+vmovsd [rax]{k1}, xmm4                  --> vmovsd(ptr [rax] | k1, xmm4);
+
+vcvtpd2dq xmm16, oword [eax+33]         --> vcvtpd2dq(xmm16, xword [eax+33]); // use xword for m128 instead of oword
+                                            vcvtpd2dq(xmm16, ptr [eax+33]); // default xword
+vcvtpd2dq xmm21, [eax+32]{1to2}         --> vcvtpd2dq(xmm21, ptr_b [eax+32]);
+vcvtpd2dq xmm0, yword [eax+33]          --> vcvtpd2dq(xmm0, yword [eax+33]); // use yword for m256
+vcvtpd2dq xmm19, [eax+32]{1to4}         --> vcvtpd2dq(xmm19, yword_b [eax+32]); // use yword_b to broadcast
+
+vfpclassps k5{k3}, zword [rax+64], 5    --> vfpclassps(k5|k3, zword [rax+64], 5); // specify m512
+vfpclasspd k5{k3}, [rax+64]{1to2}, 5    --> vfpclasspd(k5|k3, xword_b [rax+64], 5); // broadcast 64-bit to 128-bit
+vfpclassps k5{k3}, [rax+64]{1to4}, 5    --> vfpclassps(k5|k3, xword_b [rax+64], 5); // broadcast 32-bit to 128-bit
+
+
+注意
+* k1, ..., k7 は新しいopmaskレジスタです。
+* z, sae, rn-sae, rd-sae, ru-sae, rz-saeの代わりにT_z, T_sae, T_rn_sae, T_rd_sae, T_ru_sae, T_rz_saeを使ってください。
+* `k4 | k3`と`k3 | k4`は意味が異なります。
+* {1toX}の代わりにptr_bを使ってください。Xは自動的に決まります。
+* 一部の命令はメモリサイズを指定するためにxword/yword/zword(_b)を使ってください。
 
 ・ラベル
 
@@ -213,6 +258,16 @@ void func2()
 * srcLabelはL()により飛び先が確定していないといけません。
 * dstLabelはL()により飛び先が確定していてはいけません。
 
+ラベルは`getAddress()`によりそのアドレスを取得できます。
+未定義のときは0が返ります。
+```
+// not AutoGrow mode
+Label label;
+assert(label.getAddress(), 0);
+L(label);
+assert(label.getAddress(), getCurr());
+```
+
 ・Xbyak::CodeGenerator()コンストラクタインタフェース
 
 @param maxSize [in] コード生成最大サイズ(デフォルト4096byte)
@@ -272,14 +327,6 @@ calc.cpp ; 与えられた多項式をアセンブルして実行(x86, x64)
 bf.cpp ; JIT Brainfuck(x86, x64)
 
 -----------------------------------------------------------------------------
-◎注意
-
-MMX/SSE命令はほぼ全て実装されていますが、3D Now!命令や、一部の特殊な
-命令は現時点では実装されていません。FPUの80bit浮動小数はサポートしていません。
-
-何かご要望があればご連絡ください。
-
------------------------------------------------------------------------------
 ◎ライセンス
 
 修正された新しいBSDライセンスに従います。
@@ -296,6 +343,35 @@ cybozulibは単体テストでのみ利用されていて、xbyak/ディレク�
 -----------------------------------------------------------------------------
 ◎履歴
 
+2017/01/26 ver 5.41 prefetcwt1追加とscale == 0対応(thanks to rsdubtso)
+2016/12/14 ver 5.40 Labelが示すアドレスを取得するLabel::getAddress()追加
+2016/12/07 ver 5.34 disp8N時の負のオフセット処理の修正(thanks to rsdubtso)
+2016/12/06 ver 5.33 disp8N時のvpbroadcast{b,w,d,q}, vpinsr{b,w}, vpextr{b,w}のバグ修正
+2016/12/01 ver 5.32 clang for Visual Studioサポートのために__xgetbv()を_xgetbv()に変更(thanks to freiro)
+2016/11/27 ver 5.31 AVX512_4VNNIをAVX512_4VNNIWに変更
+2016/11/27 ver 5.30 AVX512_4VNNI, AVX512_4FMAPS命令の追加(thanks to rsdubtso)
+2016/11/26 ver 5.20 AVX512_4VNNIとAVX512_4FMAPSの判定追加(thanks to rsdubtso)
+2016/11/20 ver 5.11 何故か消えていたvptest for ymm追加(thanks to gregory38)
+2016/11/20 ver 5.10 [rip+&var]の形のアドレッシング追加
+2016/09/29 ver 5.03 ERR_INVALID_OPMASK_WITH_MEMORYの判定ミス修正(thanks to PVS-Studio)
+2016/08/15 ver 5.02 xbyak_bin2hex.hをincludeしない
+2016/08/15 ver 5.011 gcc 5.4のバージョン取得ミスの修正
+2016/08/03 ver 5.01 AVXの省略表記非サポート
+2016/07/24 ver 5.00 avx-512フルサポート
+2016/06/13 avx-512 opmask命令サポート
+2016/05/05 ver 4.91 AVX-512命令の検出サポート
+2016/03/14 ver 4.901 ready()関数にコメント加筆(thanks to skmp)
+2016/02/04 ver 4.90 条件分岐命令にjcc(const void *addr);のタイプを追加
+2016/01/30 ver 4.89 vpblendvbがymmレジスタをサポートしていなかった(thanks to John Funnell)
+2016/01/24 ver 4.88 lea, cmovの16bitレジスタ対応(thanks to whyisthisfieldhere)
+2015/08/16 ver 4.87 セグメントセレクタに対応
+2015/08/16 ver 4.86 [rip + label]アドレッシングで即値を使うと壊れる(thanks to whyisthisfieldhere)
+2015/08/10 ver 4.85 Address::operator==()が間違っている(thanks to inolen)
+2015/07/22 ver 4.84 call()がvariadic template対応
+2015/05/24 ver 4.83 mobveサポート(thanks to benvanik)
+2015/05/24 ver 4.82 F16Cが使えるかどうかの判定追加
+2015/04/25 ver 4.81 setSizeが例外を投げる条件を修正(thanks to whyisthisfieldhere)
+2015/04/22 ver 4.80 rip相対でLabelのサポート(thanks to whyisthisfieldhere)
 2015/01/28 ver 4.71 adcx, adox, cmpxchg, rdseed, stacのサポート
 2014/10/14 ver 4.70 MmapAllocatorのサポート
 2014/06/13 ver 4.62 VC2014で警告抑制
@@ -381,7 +457,7 @@ cybozulibは単体テストでのみ利用されていて、xbyak/ディレク�
 -----------------------------------------------------------------------------
 ◎著作権者
 
-光成滋生(MITSUNARI Shigeo, herumi at nifty dot com)
+光成滋生(MITSUNARI Shigeo, herumi@nifty.com)
 
 ---
 $Revision: 1.56 $

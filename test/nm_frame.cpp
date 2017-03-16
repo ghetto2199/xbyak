@@ -1,8 +1,12 @@
 #include <stdio.h>
+#define XBYAK_ENABLE_OMITTED_OPERAND
 #include "xbyak/xbyak.h"
 
 using namespace Xbyak;
 
+#ifdef _MSC_VER
+	#pragma warning(disable : 4245)
+#endif
 class Sample : public CodeGenerator {
 	void operator=(const Sample&);
 public:
@@ -25,6 +29,7 @@ public:
 	}
 };
 int main()
+	try
 {
 	try {
 		Sample s;
@@ -36,4 +41,7 @@ int main()
 	}
 	ErrorSample es;
 	es.gen();
+} catch (std::exception& e) {
+	printf("err %s\n", e.what());
+	return 1;
 }

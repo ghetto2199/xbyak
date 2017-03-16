@@ -1,5 +1,5 @@
 
-Xbyak 4.71 ; JIT assembler for x86(IA32), x64(AMD64, x86-64) by C++
+Xbyak 5.41 ; JIT assembler for x86(IA32), x64(AMD64, x86-64) by C++
 =============
 
 Abstract
@@ -14,25 +14,25 @@ you can use Xbyak's functions at once if xbyak.h is included.
 
 ### Supported Instructions Sets
 
-MMX/MMX2/SSE/SSE2/SSE3/SSSE3/SSE4/FPU(*partial*)/AVX/AVX2/FMA/VEX-encoded GPR
+MMX/MMX2/SSE/SSE2/SSE3/SSSE3/SSE4/FPU(*partial*)/AVX/AVX2/FMA/VEX-encoded GPR/AVX-512
 
 ### Supported OS
 
 * Windows Xp, Vista, Windows 7(32bit, 64bit)
 * Linux(32bit, 64bit)
-* Intel Mac ready
+* Intel Mac OSX
 
 ### Supported Compilers
 
-* Visual Studio C++ VC2008 Pro, VC2010, VC2012
-* gcc 4.7
+* Visual Studio C++ VC2012 or later
+* gcc 4.7 or later
 * clang 3.3
 * cygwin gcc 4.5.3
 * icc 7.2
 
 >Note: Xbyak uses and(), or(), xor(), not() functions, so "-fno-operator-names" option is required on gcc.
 Or define XBYAK_NO_OP_NAMES and use and_(), or_(), xor_(), not_() instead of them.
-and_(), or_(), xor_(), not_() are available if XBYAK_NO_OP_NAMES is not defined.
+and_(), or_(), xor_(), not_() are always available.
 
 Install
 -------------
@@ -40,7 +40,6 @@ Install
 The following files are necessary. Please add the path to your compile directories.
 
 * xbyak.h
-* xbyak_bin2hex.h
 * xbyak_mnemonic.h
 
 Linux:
@@ -49,42 +48,10 @@ Linux:
 
 These files are copied into /usr/local/include/xbyak
 
-Break backward compatibility
--------------
-* change the type of Xbyak::Error from enum to a class.
-** get the enum value by cast to int.
-* An (old) Reg32e class will split (new) Reg32e class and (new) RegExp.
-(new) Reg32e class is Reg32 or Reg64.
-(new) RegExp class is to deal with 'Reg32e + Reg32e * scale + disp'.
-Please rename Reg32e as RegExp if you use (old) Reg32e as RegExp.
-
 New Feature
 -------------
 
-* Use MmapAllocator if XBYAK_USE_MMAP_ALLOCATOR.
-Default allocator calls posix_memalign on Linux, then mprotect recudes map count.
-The max value is written in  ```/proc/sys/vm/max_map_count```.
-The max number of instances of ```Xbyak::CodeGenerator``` is limited to the value.
-See ```test/mprotect_test.cpp```.
-Use MmapAllocator if you want to avoid the restriction(This behavior may be default in the feature).
-
-
-* AutoGrow mode is a mode that Xbyak grows memory automatically if necessary.
-Call ready() before calling getCode() to calc address of jmp.
-```
-    struct Code : Xbyak::CodeGenerator {
-      Code()
-        : Xbyak::CodeGenerator(<default memory size>, Xbyak::AutoGrow)
-      {
-         ...
-      }
-    };
-    Code c;
-    c.ready(); // Don't forget to call this function
-```
->Don't use the address returned by getCurr() before calling ready().
->It may be invalid address.
->RESTRICTION : rip addressing is not supported in AutoGrow
+Add support for AVX-512 instruction set.
 
 Syntax
 -------------
@@ -106,7 +73,15 @@ pointer by calling cgetCode() and casting the return value.
     mov eax, [ebx+ecx] --> mov (eax, ptr[ebx+ecx]);
     test byte [esp], 4 --> test (byte [esp], 4);
 
->selector is not supported.
+
+How to use Selector(Segment Register)
+
+>Note: Segment class is not derived from Operand.
+
+```
+mov eax, [fs:eax] --> putSeg(fs); mov(eax, ptr [eax]);
+mov ax, cs        --> mov(ax, cs);
+```
 
 >you can use ptr for almost memory access unless you specify the size of memory.
 
@@ -114,12 +89,53 @@ pointer by calling cgetCode() and casting the return value.
 
 ### AVX
 
-You can omit a destination for almost 3-op mnemonics.
-
     vaddps(xmm1, xmm2, xmm3); // xmm1 <- xmm2 + xmm3
-    vaddps(xmm2, xmm3); // xmm2 <- xmm2 + xmm3
     vaddps(xmm2, xmm3, ptr [rax]); // use ptr to access memory
     vgatherdpd(xmm1, ptr [ebp+123+xmm2*4], xmm3);
+
+*Remark*
+The omitted destination syntax as the following ss disabled.
+```
+    vaddps(xmm2, xmm3); // xmm2 <- xmm2 + xmm3
+```
+define `XBYAK_ENABLE_OMITTED_OPERAND` if you use it for backward compatibility.
+But the newer version will not support it.
+
+### AVX-512
+
+```
+vaddpd zmm2, zmm5, zmm30                --> vaddpd(zmm2, zmm5, zmm30);
+vaddpd xmm30, xmm20, [rax]              --> vaddpd(xmm30, xmm20, ptr [rax]);
+vaddps xmm30, xmm20, [rax]              --> vaddps(xmm30, xmm20, ptr [rax]);
+vaddpd zmm2{k5}, zmm4, zmm2             --> vaddpd(zmm2 | k5, zmm4, zmm2);
+vaddpd zmm2{k5}{z}, zmm4, zmm2          --> vaddpd(zmm2 | k5 | T_z, zmm4, zmm2);
+vaddpd zmm2{k5}{z}, zmm4, zmm2,{rd-sae} --> vaddpd(zmm2 | k5 | T_z, zmm4, zmm2 | T_rd_sae);
+                                            vaddpd(zmm2 | k5 | T_z | T_rd_sae, zmm4, zmm2); // the position of `|` is arbitrary.
+vcmppd k4{k3}, zmm1, zmm2, {sae}, 5     --> vcmppd(k4 | k3, zmm1, zmm2 | T_sae, 5);
+
+vaddpd xmm1, xmm2, [rax+256]            --> vaddpd(xmm1, xmm2, ptr [rax+256]);
+vaddpd xmm1, xmm2, [rax+256]{1to2}      --> vaddpd(xmm1, xmm2, ptr_b [rax+256]);
+vaddpd ymm1, ymm2, [rax+256]{1to4}      --> vaddpd(ymm1, ymm2, ptr_b [rax+256]);
+vaddpd zmm1, zmm2, [rax+256]{1to8}      --> vaddpd(zmm1, zmm2, ptr_b [rax+256]);
+vaddps zmm1, zmm2, [rax+rcx*8+8]{1to16} --> vaddps(zmm1, zmm2, ptr_b [rax+rcx*8+8]);
+vmovsd [rax]{k1}, xmm4                  --> vmovsd(ptr [rax] | k1, xmm4);
+
+vcvtpd2dq xmm16, oword [eax+33]         --> vcvtpd2dq(xmm16, xword [eax+33]); // use xword for m128 instead of oword
+                                            vcvtpd2dq(xmm16, ptr [eax+33]); // default xword
+vcvtpd2dq xmm21, [eax+32]{1to2}         --> vcvtpd2dq(xmm21, ptr_b [eax+32]);
+vcvtpd2dq xmm0, yword [eax+33]          --> vcvtpd2dq(xmm0, yword [eax+33]); // use yword for m256
+vcvtpd2dq xmm19, [eax+32]{1to4}         --> vcvtpd2dq(xmm19, yword_b [eax+32]); // use yword_b to broadcast
+
+vfpclassps k5{k3}, zword [rax+64], 5    --> vfpclassps(k5|k3, zword [rax+64], 5); // specify m512
+vfpclasspd k5{k3}, [rax+64]{1to2}, 5    --> vfpclasspd(k5|k3, xword_b [rax+64], 5); // broadcast 64-bit to 128-bit
+vfpclassps k5{k3}, [rax+64]{1to4}, 5    --> vfpclassps(k5|k3, xword_b [rax+64], 5); // broadcast 32-bit to 128-bit
+```
+Remark
+* k1, ..., k7 are new opmask registers.
+* use `| T_z`, `| T_sae`, `| T_rn_sae`, `| T_rd_sae`, `| T_ru_sae`, `| T_rz_sae` instead of `,{z}`, `,{sae}`, `,{rn-sae}`, `,{rd-sae}`, `,{ru-sae}`, `,{rz-sae}` respectively.
+* `k4 | k3` is different from `k3 | k4`.
+* use `ptr_b` for broadcast `{1toX}`. X is automatically determined.
+* specify xword/yword/zword(_b) for m128/m256/m512 if necessary.
 
 ### Label
 
@@ -176,7 +192,7 @@ inLocalLabel() and outLocalLabel() can be nested.
         inLocalLabel();
     }
 
-### New Label class
+### Label class
 
 L() and jxx() functions support a new Label class.
 
@@ -204,6 +220,29 @@ The above jmp opecode jumps label1.
 * srcLabel must be used in L().
 * dstLabel must not be used in L().
 
+Label::getAddress() returns the address specified by the label instance and 0 if not specified.
+```
+// not AutoGrow mode
+Label  label;
+assert(label.getAddress() == 0);
+L(label);
+assert(label.getAddress() == getCurr());
+```
+
+### Rip
+```
+Label label;
+mov(eax, ptr [rip + label]); // eax = 4
+...
+
+L(label);
+dd(4);
+```
+```
+int x;
+...
+  mov(eax, ptr[rip + &x]); // throw exception if the difference between &x and current position is larger than 2GiB
+```
 ### Code size
 The default max code size is 4096 bytes. Please set it in constructor of CodeGenerator() if you want to use large size.
 
@@ -243,6 +282,26 @@ You can make jit code on prepaired memory.
 
 >See *sample/test0.cpp*
 
+AutoGrow
+-------------
+
+Under `AutoGrow` mode, Xbyak extends memory automatically if necessary.
+Call ready() before calling getCode() to calc address of jmp.
+```
+    struct Code : Xbyak::CodeGenerator {
+      Code()
+        : Xbyak::CodeGenerator(<default memory size>, Xbyak::AutoGrow)
+      {
+         ...
+      }
+    };
+    Code c;
+    c.ready(); // Don't forget to call this function
+```
+>Don't use the address returned by getCurr() before calling ready().
+>It may be invalid address.
+>RESTRICTION : rip addressing is not supported in AutoGrow
+
 Macro
 -------------
 
@@ -250,6 +309,8 @@ Macro
 * **XBYAK64** is defined on 64bit.
 * **XBYAK64_WIN** is defined on 64bit Windows(VC)
 * **XBYAK64_GCC** is defined on 64bit gcc, cygwin
+* define **XBYAK_NO_OP_NAMES** on gcc without `-fno-operator-names`
+* define **XBYAK_ENABLE_OMITTED_OPERAND** if you use omitted destination such as `vaddps(xmm2, xmm3);`(duplicated in the future)
 
 Sample
 -------------
@@ -258,12 +319,6 @@ Sample
 * quantize.cpp ; JIT optimized quantization by fast division(x86 only)
 * calc.cpp ; assemble and estimate a given polynomial(x86, x64)
 * bf.cpp ; JIT brainfuck(x86, x64)
-
-Remark
--------------
-
-The current version does not support 3D Now!, 80bit FPU load/store and some special mnemonics.
-Please mail to me if necessary.
 
 License
 -------------
@@ -277,6 +332,35 @@ The header files under xbyak/ are independent of cybozulib.
 
 History
 -------------
+* 2017/Jan/26 ver 5.41 add prefetchwt1 and support for scale == 0(thanks to rsdubtso)
+* 2016/Dec/14 ver 5.40 add Label::getAddress() method to get the pointer specified by the label
+* 2016/Dec/09 ver 5.34 fix handling of negative offsets when encoding disp8N(thanks to rsdubtso)
+* 2016/Dec/08 ver 5.33 fix encoding of vpbroadcast{b,w,d,q}, vpinsr{b,w}, vpextr{b,w} for disp8N
+* 2016/Dec/01 ver 5.32 rename __xgetbv() to _xgetbv() to support clang for Visual Studio(thanks to freiro)
+* 2016/Nov/27 ver 5.31 rename AVX512_4VNNI to AVX512_4VNNIW
+* 2016/Nov/27 ver 5.30 add AVX512_4VNNI, AVX512_4FMAPS instructions(thanks to rsdubtso)
+* 2016/Nov/26 ver 5.20 add detection of AVX512_4VNNI and AVX512_4FMAPS(thanks to rsdubtso)
+* 2016/Nov/20 ver 5.11 lost vptest for ymm(thanks to gregory38)
+* 2016/Nov/20 ver 5.10 add addressing [rip+&var]
+* 2016/Sep/29 ver 5.03 fix detection ERR_INVALID_OPMASK_WITH_MEMORY(thanks to PVS-Studio)
+* 2016/Aug/15 ver 5.02 xbyak does not include xbyak_bin2hex.h
+* 2016/Aug/15 ver 5.011 fix detection of version of gcc 5.4
+* 2016/Aug/03 ver 5.01 disable omitted operand
+* 2016/Jun/24 ver 5.00 support avx-512 instruction set
+* 2016/Jun/13 avx-512 add mask instructions
+* 2016/May/05 ver 4.91 add detection of AVX-512 to Xbyak::util::Cpu
+* 2016/Mar/14 ver 4.901 comment to ready() function(thanks to skmp)
+* 2016/Feb/04 ver 4.90 add jcc(const void *addr);
+* 2016/Jan/30 ver 4.89 vpblendvb supports ymm reg(thanks to John Funnell)
+* 2016/Jan/24 ver 4.88 lea, cmov supports 16-bit register(thanks to whyisthisfieldhere)
+* 2015/Oct/05 ver 4.87 support segment selectors
+* 2015/Aug/18 ver 4.86 fix [rip + label] addressing with immediate value(thanks to whyisthisfieldhere)
+* 2015/Aug/10 ver 4.85 Address::operator==() is not correct(thanks to inolen)
+* 2015/Jun/22 ver 4.84 call() support variadic template if available(thanks to randomstuff)
+* 2015/Jun/16 ver 4.83 support movbe(thanks to benvanik)
+* 2015/May/24 ver 4.82 support detection of F16C
+* 2015/Apr/25 ver 4.81 fix the condition to throw exception for setSize(thanks to whyisthisfieldhere)
+* 2015/Apr/22 ver 4.80 rip supports label(thanks to whyisthisfieldhere)
 * 2015/Jar/28 ver 4.71 support adcx, adox, cmpxchg, rdseed, stac
 * 2014/Oct/14 ver 4.70 support MmapAllocator
 * 2014/Jun/13 ver 4.62 disable warning of VC2014
@@ -355,5 +439,5 @@ History
 Author
 -------------
 
-MITSUNARI Shigeo(herumi at nifty dot com)
+MITSUNARI Shigeo(herumi@nifty.com)
 

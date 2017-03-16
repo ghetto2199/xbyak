@@ -7,7 +7,7 @@
 	Xbyak::util::Cpu ; detect CPU
 	@note this header is UNDER CONSTRUCTION!
 */
-#include "xbyak/xbyak.h"
+#include "xbyak.h"
 
 #ifdef _MSC_VER
 	#if (_MSC_VER < 1400) && defined(XBYAK32)
@@ -46,10 +46,6 @@
 			#define __cpuid_count(eaxIn, ecxIn, a, b, c, d) __asm__ __volatile__("cpuid\n" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "0"(eaxIn), "2"(ecxIn))
 		#endif
 	#endif
-#endif
-
-#ifdef _MSC_VER
-extern "C" unsigned __int64 __xgetbv(int);
 #endif
 
 namespace Xbyak { namespace util {
@@ -96,6 +92,9 @@ public:
 	int extFamily;
 	int displayFamily; // family + extFamily
 	int displayModel; // model + extModel
+	/*
+		data[] = { eax, ebx, ecx, edx }
+	*/
 	static inline void getCpuid(unsigned int eaxIn, unsigned int data[4])
 	{
 #ifdef _MSC_VER
@@ -115,7 +114,7 @@ public:
 	static inline uint64 getXfeature()
 	{
 #ifdef _MSC_VER
-		return __xgetbv(0);
+		return _xgetbv(0);
 #else
 		unsigned int eax, edx;
 		// xgetvb is not support on gcc 4.2
@@ -162,6 +161,20 @@ public:
 	static const Type tSMAP = 1 << 30; // stac
 	static const Type tHLE = uint64(1) << 31; // xacquire, xrelease, xtest
 	static const Type tRTM = uint64(1) << 32; // xbegin, xend, xabort
+	static const Type tF16C = uint64(1) << 33; // vcvtph2ps, vcvtps2ph
+	static const Type tMOVBE = uint64(1) << 34; // mobve
+	static const Type tAVX512F = uint64(1) << 35;
+	static const Type tAVX512DQ = uint64(1) << 36;
+	static const Type tAVX512IFMA = uint64(1) << 37;
+	static const Type tAVX512PF = uint64(1) << 38;
+	static const Type tAVX512ER = uint64(1) << 39;
+	static const Type tAVX512CD = uint64(1) << 40;
+	static const Type tAVX512BW = uint64(1) << 41;
+	static const Type tAVX512VL = uint64(1) << 42;
+	static const Type tAVX512VBMI = uint64(1) << 43;
+	static const Type tAVX512_4VNNIW = uint64(1) << 44;
+	static const Type tAVX512_4FMAPS = uint64(1) << 45;
+	static const Type tPREFETCHWT1 = uint64(1) << 46;
 
 	Cpu()
 		: type_(NONE)
@@ -191,11 +204,13 @@ public:
 		if (data[2] & (1U << 9)) type_ |= tSSSE3;
 		if (data[2] & (1U << 19)) type_ |= tSSE41;
 		if (data[2] & (1U << 20)) type_ |= tSSE42;
+		if (data[2] & (1U << 22)) type_ |= tMOVBE;
 		if (data[2] & (1U << 23)) type_ |= tPOPCNT;
 		if (data[2] & (1U << 25)) type_ |= tAESNI;
 		if (data[2] & (1U << 1)) type_ |= tPCLMULQDQ;
 		if (data[2] & (1U << 27)) type_ |= tOSXSAVE;
 		if (data[2] & (1U << 30)) type_ |= tRDRAND;
+		if (data[2] & (1U << 29)) type_ |= tF16C;
 
 		if (data[3] & (1U << 15)) type_ |= tCMOV;
 		if (data[3] & (1U << 23)) type_ |= tMMX;
@@ -208,6 +223,22 @@ public:
 			if ((bv & 6) == 6) {
 				if (data[2] & (1U << 28)) type_ |= tAVX;
 				if (data[2] & (1U << 12)) type_ |= tFMA;
+				if (((bv >> 5) & 7) == 7) {
+					getCpuidEx(7, 0, data);
+					if (data[1] & (1U << 16)) type_ |= tAVX512F;
+					if (type_ & tAVX512F) {
+						if (data[1] & (1U << 17)) type_ |= tAVX512DQ;
+						if (data[1] & (1U << 21)) type_ |= tAVX512IFMA;
+						if (data[1] & (1U << 26)) type_ |= tAVX512PF;
+						if (data[1] & (1U << 27)) type_ |= tAVX512ER;
+						if (data[1] & (1U << 28)) type_ |= tAVX512CD;
+						if (data[1] & (1U << 30)) type_ |= tAVX512BW;
+						if (data[1] & (1U << 31)) type_ |= tAVX512VL;
+						if (data[2] & (1U << 1)) type_ |= tAVX512VBMI;
+						if (data[3] & (1U << 2)) type_ |= tAVX512_4VNNIW;
+						if (data[3] & (1U << 3)) type_ |= tAVX512_4FMAPS;
+					}
+				}
 			}
 		}
 		if (maxNum >= 7) {
@@ -221,10 +252,11 @@ public:
 			if (data[1] & (1U << 20)) type_ |= tSMAP;
 			if (data[1] & (1U << 4)) type_ |= tHLE;
 			if (data[1] & (1U << 11)) type_ |= tRTM;
+			if (data[2] & (1U << 0)) type_ |= tPREFETCHWT1;
 		}
 		setFamily();
 	}
-	void putFamily()
+	void putFamily() const
 	{
 		printf("family=%d, model=%X, stepping=%d, extFamily=%d, extModel=%X\n",
 			family, model, stepping, extFamily, extModel);
@@ -279,7 +311,7 @@ class Pack {
 	const Xbyak::Reg64 *tbl_[maxTblNum];
 	size_t n_;
 public:
-	Pack() : n_(0) {}
+	Pack() : tbl_(), n_(0) {}
 	Pack(const Xbyak::Reg64 *tbl, size_t n) { init(tbl, n); }
 	Pack(const Pack& rhs)
 		: n_(rhs.n_)

@@ -1,7 +1,17 @@
-rem set STL_DIR=c:/s/STLport
-rem set OPT=-GX -I%STL_DIR%/stlport /link /libpath:%STL_DIR%/lib
-rem set OPT=-GX -I../xbyak
-rem don't add /Ox
-set OPT=/EHsc -I../xbyak
+@echo off
+set OPT=/EHsc -I../xbyak /W4 -D_CRT_SECURE_NO_WARNINGS
+set TARGET=..\\xbyak\\xbyak_mnemonic.h
+set SORT=sortline
 cl gen_code.cpp %OPT%
-gen_code > ..\\xbyak\\xbyak_mnemonic.h
+gen_code | %SORT% > %TARGET%
+echo #ifdef XBYAK_ENABLE_OMITTED_OPERAND>> %TARGET%
+gen_code omit | %SORT% >> %TARGET%
+echo #endif>>%TARGET%
+gen_code fixed >> %TARGET%
+cl gen_avx512.cpp %OPT%
+echo #ifndef XBYAK_DISABLE_AVX512>> %TARGET%
+gen_avx512 |%SORT% >> %TARGET%
+echo #ifdef XBYAK64>> %TARGET%
+gen_avx512 64 |%SORT% >> %TARGET%
+echo #endif>> %TARGET%
+echo #endif>> %TARGET%

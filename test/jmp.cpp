@@ -5,10 +5,6 @@
 #include <cybozu/inttype.hpp>
 #include <cybozu/test.hpp>
 
-#if !defined(_WIN64) && !defined(__x86_64__)
-	#define ONLY_32BIT
-#endif
-
 using namespace Xbyak;
 
 void putNop(Xbyak::CodeGenerator *gen, int n)
@@ -305,7 +301,7 @@ CYBOZU_TEST_AUTO(test2)
 	}
 }
 
-#ifdef ONLY_32BIT
+#ifdef XBYAK32
 int add5(int x) { return x + 5; }
 int add2(int x) { return x + 2; }
 
@@ -448,7 +444,7 @@ size_t getValue(const uint8* p)
 {
 	size_t v = 0;
 	for (size_t i = 0; i < sizeof(size_t); i++) {
-		v |= p[i] << (i * 8);
+		v |= size_t(p[i]) << (i * 8);
 	}
 	return v;
 }
@@ -558,13 +554,13 @@ CYBOZU_TEST_AUTO(testMovLabel2)
 	struct MovLabel2Code : Xbyak::CodeGenerator {
 		MovLabel2Code()
 		{
-	#ifdef XBYAK64
+#ifdef XBYAK64
 			const Reg64& a = rax;
 			const Reg64& c = rcx;
-	#else
+#else
 			const Reg32& a = eax;
 			const Reg32& c = ecx;
-	#endif
+#endif
 			xor_(a, a);
 			xor_(c, c);
 			jmp("in");
@@ -770,6 +766,36 @@ CYBOZU_TEST_AUTO(test6)
 	}
 }
 
+CYBOZU_TEST_AUTO(test_jcc)
+{
+	struct A : Xbyak::CodeGenerator {
+		A()
+		{
+			add(eax, 5);
+			ret();
+		}
+	};
+	struct B : Xbyak::CodeGenerator {
+		B(bool grow, const void *p) : Xbyak::CodeGenerator(grow ? 0 : 4096, grow ? Xbyak::AutoGrow : 0)
+		{
+			mov(eax, 1);
+			add(eax, 2);
+			jnz(p);
+		}
+	};
+	A a;
+	const void *p = a.getCode<const void*>();
+	for (int i = 0; i < 2; i++) {
+		bool grow = i == 1;
+		B b(grow, p);
+		if (grow) {
+			b.ready();
+		}
+		int (*f)() = b.getCode<int (*)()>();
+		CYBOZU_TEST_EQUAL(f(), 8);
+	}
+}
+
 CYBOZU_TEST_AUTO(testNewLabel)
 {
 	struct Code : Xbyak::CodeGenerator {
@@ -935,3 +961,191 @@ CYBOZU_TEST_AUTO(doubleDefine)
 		}
 	} code;
 }
+
+struct GetAddressCode1 : Xbyak::CodeGenerator {
+	void test()
+	{
+		Xbyak::Label L1, L2, L3;
+		nop();
+	L(L1);
+		const uint8_t *p1 = getCurr();
+		CYBOZU_TEST_EQUAL_POINTER(L1.getAddress(), p1);
+
+		nop();
+		jmp(L2);
+		nop();
+		jmp(L3);
+	L(L2);
+		CYBOZU_TEST_EQUAL_POINTER(L2.getAddress(), getCurr());
+		// L3 is not defined
+		CYBOZU_TEST_EQUAL_POINTER(L3.getAddress(), 0);
+
+		// L3 is set by L1
+		assignL(L3, L1);
+		CYBOZU_TEST_EQUAL_POINTER(L3.getAddress(), p1);
+	}
+};
+
+CYBOZU_TEST_AUTO(getAddress1)
+{
+	GetAddressCode1 c;
+	c.test();
+}
+
+struct GetAddressCode2 : Xbyak::CodeGenerator {
+	Xbyak::Label L1, L2, L3;
+	size_t a1;
+	size_t a3;
+	explicit GetAddressCode2(int size)
+		: Xbyak::CodeGenerator(size, size == 4096 ? 0 : Xbyak::AutoGrow)
+		, a1(0)
+		, a3(0)
+	{
+		bool autoGrow = size != 4096;
+		nop();
+	L(L1);
+		if (autoGrow) {
+			CYBOZU_TEST_EQUAL_POINTER(L1.getAddress(), 0);
+		}
+		a1 = getSize();
+		nop();
+		jmp(L2);
+		if (autoGrow) {
+			CYBOZU_TEST_EQUAL_POINTER(L2.getAddress(), 0);
+		}
+	L(L3);
+		a3 = getSize();
+		if (autoGrow) {
+			CYBOZU_TEST_EQUAL_POINTER(L3.getAddress(), 0);
+		}
+		nop();
+		assignL(L2, L1);
+		if (autoGrow) {
+			CYBOZU_TEST_EQUAL_POINTER(L2.getAddress(), 0);
+		}
+	}
+};
+
+CYBOZU_TEST_AUTO(getAddress2)
+{
+	const int sizeTbl[] = {
+		2, 128, // grow
+		4096 // not grow
+	};
+	for (size_t i = 0; i < CYBOZU_NUM_OF_ARRAY(sizeTbl); i++) {
+		int size = sizeTbl[i];
+		GetAddressCode2 c(size);
+		c.ready();
+		const uint8_t *p = c.getCode();
+		CYBOZU_TEST_EQUAL(c.L1.getAddress(), p + c.a1);
+		CYBOZU_TEST_EQUAL(c.L3.getAddress(), p + c.a3);
+		CYBOZU_TEST_EQUAL(c.L2.getAddress(), p + c.a1);
+	}
+}
+
+#ifdef XBYAK64
+CYBOZU_TEST_AUTO(rip)
+{
+	int a[] = { 1, 10 };
+	int b[] = { 100, 1000 };
+	struct Code : Xbyak::CodeGenerator {
+		Code(const int *a, const int *b)
+		{
+			Label label1, label2;
+			jmp("@f");
+		L(label1);
+			db(a[0], 4);
+			db(a[1], 4);
+		L("@@");
+			mov(eax, ptr [rip + label1]);       // a[0]
+			mov(ecx, ptr [rip + label1+4]);     // a[1]
+			mov(edx, ptr [rip + label2-8+2+6]); // b[0]
+			add(ecx, ptr [rip + 16+label2-12]); // b[1]
+			add(eax, ecx);
+			add(eax, edx);
+			ret();
+		L(label2);
+			db(b[0], 4);
+			db(b[1], 4);
+
+			// error
+			CYBOZU_TEST_EXCEPTION(rip + label1 + label2, Xbyak::Error);
+		}
+	} code(a, b);
+	int ret = code.getCode<int (*)()>()();
+	CYBOZU_TEST_EQUAL(ret, a[0] + a[1] + b[0] + b[1]);
+}
+
+int ret1234()
+{
+	return 1234;
+}
+
+int ret9999()
+{
+	return 9999;
+}
+
+CYBOZU_TEST_AUTO(rip_jmp)
+{
+	struct Code : Xbyak::CodeGenerator {
+		Code()
+		{
+			Label label;
+			xor_(eax, eax);
+			call(ptr [rip + label]);
+			mov(ecx, eax);
+			call(ptr [rip + label + 8]);
+			add(eax, ecx);
+			ret();
+		L(label);
+			db((size_t)ret1234, 8);
+			db((size_t)ret9999, 8);
+		}
+	} code;
+	int ret = code.getCode<int (*)()>()();
+	CYBOZU_TEST_EQUAL(ret, ret1234() + ret9999());
+}
+
+#ifdef XBYAK64_GCC
+CYBOZU_TEST_AUTO(rip_addr)
+{
+	/*
+		assume |&x - &code| < 2GiB
+	*/
+	static int x = 5;
+	struct Code : Xbyak::CodeGenerator {
+		Code()
+		{
+			mov(eax, 123);
+			mov(ptr[rip + &x], eax);
+			ret();
+		}
+	} code;
+	code.getCode<void (*)()>()();
+	CYBOZU_TEST_EQUAL(x, 123);
+}
+#endif
+CYBOZU_TEST_AUTO(rip_addr_with_fixed_buf)
+{
+	MIE_ALIGN(4096) static char buf[8192];
+	static char *p = buf + 4096;
+	static int *x0 = (int*)buf;
+	static int *x1 = x0 + 1;
+	struct Code : Xbyak::CodeGenerator {
+		Code() : Xbyak::CodeGenerator(4096, p)
+		{
+			mov(eax, 123);
+			mov(ptr[rip + x0], eax);
+			mov(dword[rip + x1], 456);
+			mov(byte[rip + 1 + x1 + 3], 99);
+			ret();
+		}
+	} code;
+	Xbyak::CodeArray::protect(p, 4096, true);
+	code.getCode<void (*)()>()();
+	CYBOZU_TEST_EQUAL(*x0, 123);
+	CYBOZU_TEST_EQUAL(*x1, 456);
+	CYBOZU_TEST_EQUAL(buf[8], 99);
+}
+#endif
